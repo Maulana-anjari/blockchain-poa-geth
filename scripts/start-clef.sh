@@ -28,16 +28,21 @@ spawn clef \
     --http --http.addr 0.0.0.0 --http.port 8550 --http.vhosts "*" \
     --suppress-bootwarn
 
+# Harapkan prompt password master seed.
+expect "Please enter the password to decrypt the master seed"
+# Kirim password dari environment variable diikuti newline.
+send "$clef_master_password\n"
+
 # Harapkan (expect) prompt "Enter 'ok' to proceed:" yang muncul karena flag --advanced.
 # Ini adalah penanganan prompt yang robust.
 expect "Enter 'ok' to proceed:"
 # Kirim (send) "ok" diikuti newline (\r).
 send "ok\n"
 
-# Harapkan prompt password master seed.
-expect "Please enter the password to decrypt the master seed"
-# Kirim password dari environment variable diikuti newline.
-send "$clef_master_password\n"
+# Harapkan prompt persetujuan akun (jika muncul).
+expect "Approve? \[y/N\]:"
+# Kirim 'y' untuk menyetujui, diikuti newline.
+send "y\n"
 
 # Tunggu hingga proses Clef selesai atau menutup output-nya (end of file).
 # Ini penting agar kontainer Docker tidak langsung keluar setelah skrip selesai.

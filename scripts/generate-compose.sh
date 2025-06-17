@@ -17,15 +17,14 @@ EOF
 cat >> $OUTPUT_FILE <<EOF
   # --- Bootnode (Non-Signer 1) ---
   nonsigner1:
-    build:
-      context: .
-      dockerfile: Dockerfile.geth
+    image: ethereum/client-go:alltools-v1.13.15
     container_name: nonsigner1
     hostname: nonsigner1
     volumes:
       - ./config/genesis.json:/config/genesis.json:ro
       - ./data/nonsigner1:/root/.ethereum
       - ./config/passwords/nonsigner1.pass:/root/password.txt:ro
+      - ./data/nonsigner1/keystore:/root/.ethereum/keystore:ro
     ports:
       - "\${BASE_GETH_P2P_PORT}:${BASE_GETH_P2P_PORT}/tcp"
       - "\${BASE_GETH_P2P_PORT}:${BASE_GETH_P2P_PORT}/udp"
@@ -39,9 +38,12 @@ cat >> $OUTPUT_FILE <<EOF
       --port \${BASE_GETH_P2P_PORT}
       --http --http.addr "0.0.0.0" --http.port 8545 --http.api "eth,net,web3,clique,admin,personal" --http.corsdomain "*" --http.vhosts "*"
       --ws --ws.addr "0.0.0.0" --ws.port 8546 --ws.api "eth,net,web3,clique,admin,personal" --ws.origins "*"
-      # Hapus metrik untuk sementara untuk menyederhanakan debugging
-      # --metrics --metrics.expensive --metrics.influxdb ...
-      # --ethstats "nonsigner1:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
+      --metrics --metrics.expensive --metrics.influxdb
+      --metrics.influxdb.endpoint "http://influxdb:8086"
+      --metrics.influxdb.database "\${INFLUXDB_DB}"
+      --metrics.influxdb.username "\${INFLUXDB_USER}"
+      --metrics.influxdb.password "\${INFLUXDB_PASSWORD}"
+      --ethstats "nonsigner1:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
       --password /root/password.txt --allow-insecure-unlock
     networks:
       - geth-network
@@ -62,12 +64,6 @@ cat >> $OUTPUT_FILE <<EOF
       context: .
       dockerfile: Dockerfile.clef
     container_name: clef${i}
-    tty: true
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "8550"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
     environment:
       - CLEF_MASTER_PASSWORD=\${SIGNER_PASS_PREFIX}${i}
       - NETWORK_ID=\${NETWORK_ID}
@@ -75,18 +71,17 @@ cat >> $OUTPUT_FILE <<EOF
       - ./data/signer${i}/keystore:/root/.ethereum/keystore:ro
       - ./data/clef${i}:/root/.clef
       - ./config/rules.js:/root/rules.js:ro
+    command: /usr/local/bin/start-clef.sh
     networks:
       - geth-network
     restart: unless-stopped
 
   signer${i}:
-    build:
-      context: .
-      dockerfile: Dockerfile.geth
+    image: ethereum/client-go:alltools-v1.13.15
     container_name: signer${i}
     depends_on:
       clef${i}:
-        condition: service_healthy # Kita bisa kembali ke ini karena healthcheck sudah ada
+        condition: service_started
       nonsigner1:
         condition: service_started
     volumes:
@@ -95,26 +90,23 @@ cat >> $OUTPUT_FILE <<EOF
     ports:
       - "${HTTP_PORT}:8545"
       - "${WS_PORT}:8546"
-    command:
-      - "/bin/sh"
-      - "-c"
-      - |
-        apk add --no-cache curl && \
-        echo "Waiting for clef${i} to be healthy..." && \
-        until curl -s -f -X POST --data '{"jsonrpc":"2.0","method":"admin_peers","params":[],"id":1}' -H 'Content-Type: application/json' http://clef${i}:8550 > /dev/null 2>&1; do \
-          sleep 2; \
-        done; \
-        echo "Clef is up! Starting Geth..."; \
-        exec geth \
-          --datadir /root/.ethereum \
-          --networkid \${NETWORK_ID} \
-          --syncmode full \
-          --port ${P2P_PORT} \
-          --http --http.addr "0.0.0.0" --http.port 8545 --http.api "eth,net,web3,clique,admin" --http.corsdomain "*" --http.vhosts "*" \
-          --ws --ws.addr "0.0.0.0" --ws.port 8546 --ws.api "eth,net,web3,clique,admin" --ws.origins "*" \
-          --bootnodes "\${BOOTNODE_ENODE}" \
-          --signer "http://clef${i}:8550" \
-          --mine --miner.etherbase "\$(cat /root/.ethereum/keystore/* | jq -r .address | awk '{print "0x" \$0}')"
+    command: >
+      geth \
+        --datadir /root/.ethereum \
+        --networkid \${NETWORK_ID} \
+        --syncmode full \
+        --port ${P2P_PORT} \
+        --http --http.addr "0.0.0.0" --http.port 8545 --http.api "eth,net,web3,clique,admin" --http.corsdomain "*" --http.vhosts "*" \
+        --ws --ws.addr "0.0.0.0" --ws.port 8546 --ws.api "eth,net,web3,clique,admin" --ws.origins "*" \
+        --metrics --metrics.expensive --metrics.influxdb \
+        --metrics.influxdb.endpoint "http://influxdb:8086" \
+        --metrics.influxdb.database "\${INFLUXDB_DB}" \
+        --metrics.influxdb.username "\${INFLUXDB_USER}" \
+        --metrics.influxdb.password "\${INFLUXDB_PASSWORD}" \
+        --ethstats "signer${i}:\${ETHSTATS_WS_SECRET}@ethstats-server:3000" \
+        --bootnodes "\${BOOTNODE_ENODE}" \
+        --signer "http://clef${i}:8550" \
+        --mine --miner.etherbase "\${SIGNER${i}_ADDRESS}"
     networks:
       - geth-network
     restart: unless-stopped
@@ -132,9 +124,7 @@ cat >> $OUTPUT_FILE <<EOF
 
   # --- Non-Signer Node ${i} ---
   nonsigner${i}:
-    build:
-      context: .
-      dockerfile: Dockerfile.geth
+    image: ethereum/client-go:alltools-v1.13.15
     container_name: nonsigner${i}
     depends_on:
       - nonsigner1
@@ -142,6 +132,7 @@ cat >> $OUTPUT_FILE <<EOF
       - ./config/genesis.json:/config/genesis.json:ro
       - ./data/nonsigner${i}:/root/.ethereum
       - ./config/passwords/nonsigner${i}.pass:/root/password.txt:ro
+      - ./data/nonsigner${i}/keystore:/root/.ethereum/keystore:ro
     ports:
       - "${HTTP_PORT}:8545"
       - "${WS_PORT}:8546"
@@ -151,8 +142,12 @@ cat >> $OUTPUT_FILE <<EOF
       --syncmode full --gcmode archive --port ${P2P_PORT}
       --http --http.addr "0.0.0.0" --http.port 8545 --http.api "eth,net,web3,clique,admin,personal" --http.corsdomain "*" --http.vhosts "*"
       --ws --ws.addr "0.0.0.0" --ws.port 8546 --ws.api "eth,net,web3,clique,admin,personal" --ws.origins "*"
-      # Hapus metrik untuk sementara
-      # --ethstats "nonsigner${i}:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
+      --metrics --metrics.expensive --metrics.influxdb
+      --metrics.influxdb.endpoint "http://influxdb:8086"
+      --metrics.influxdb.database "\${INFLUXDB_DB}"
+      --metrics.influxdb.username "\${INFLUXDB_USER}"
+      --metrics.influxdb.password "\${INFLUXDB_PASSWORD}"
+      --ethstats "nonsigner${i}:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
       --password /root/password.txt --allow-insecure-unlock
       --bootnodes "\${BOOTNODE_ENODE}"
     networks:
@@ -166,6 +161,49 @@ fi
 # Dikosongkan untuk sekarang
 
 cat >> $OUTPUT_FILE <<EOF
+# --- Monitoring Stack ---
+  ethstats-server:
+    build:
+      context: https://github.com/goerli/ethstats-server.git
+    container_name: ethstats-server
+    environment:
+      WS_SECRET: "\${ETHSTATS_WS_SECRET}"
+    ports:
+      - "\${BASE_MONITORING_HTTP_PORT}:3000"
+    networks:
+      - geth-network
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:1.8
+    container_name: influxdb
+    volumes:
+      - influxdb_data:/var/lib/influxdb
+    environment:
+      INFLUXDB_DB: "\${INFLUXDB_DB}"
+      INFLUXDB_ADMIN_USER: "\${INFLUXDB_USER}"
+      INFLUXDB_ADMIN_PASSWORD: "\${INFLUXDB_PASSWORD}"
+      INFLUXDB_HTTP_AUTH_ENABLED: "true"
+      INFLUXDB_USER: "\${INFLUXDB_USER}"
+      INFLUXDB_USER_PASSWORD: "\${INFLUXDB_PASSWORD}"
+    networks:
+      - geth-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: grafana
+    depends_on: [influxdb]
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "\${BASE_GRAFANA_HTTP_PORT}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: "\${GRAFANA_ADMIN_PASSWORD}"
+    networks:
+      - geth-network
+    restart: unless-stopped
 
 networks:
   geth-network:
