@@ -1,3 +1,6 @@
 .env
 data/
-config/nonsigner*.pass/
+config/addresses
+config/passwords
+config/genesis.json
+docker-compose.yml

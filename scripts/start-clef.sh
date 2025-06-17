@@ -1,39 +1,45 @@
 #!/usr/bin/expect -f
 # File: scripts/start-clef.sh
+# Versi final yang menggabungkan keunggulan skrip asli dengan perbaikan kecil.
 
-# Ambil password dari environment variable yang akan kita set di docker-compose
+# Ambil password dari environment variable yang akan kita set di docker-compose.
+# Ini adalah praktik terbaik untuk Docker.
 set clef_master_password $env(CLEF_MASTER_PASSWORD)
-# Ambil variabel lain yang diperlukan dari env (jika perlu, contoh: chain id)
+
+# Ambil variabel lain yang diperlukan dari environment.
 set chain_id $env(NETWORK_ID)
 set keystore_path "/root/.ethereum/keystore"
 set config_dir "/root/.clef"
 set rules_path "/root/rules.js"
 
-# Set timeout tak terbatas agar expect tidak keluar terlalu cepat
+# Set timeout tak terbatas agar skrip tidak keluar jika Clef butuh waktu untuk startup.
 set timeout -1
 
-# Jalankan (spawn) proses Clef
-# Perhatikan: Kita tidak lagi menyalurkan 'echo ok'
-spawn clef --keystore $keystore_path --configdir $config_dir --chainid $chain_id --rules $rules_path --nousb --advanced --http --http.addr 0.0.0.0 --http.port 8550 --http.vhosts "*"
+# Jalankan (spawn) proses Clef.
+# - Menggunakan parameter yang sudah benar dari skrip asli Anda.
+# - Menambahkan --suppress-bootwarn dari skrip Dchain untuk log yang lebih bersih.
+spawn clef \
+    --keystore $keystore_path \
+    --configdir $config_dir \
+    --chainid $chain_id \
+    --rules $rules_path \
+    --nousb \
+    --advanced \
+    --http --http.addr 0.0.0.0 --http.port 8550 --http.vhosts "*" \
+    --suppress-bootwarn
 
-# Harapkan (expect) prompt "Enter 'ok' to proceed:"
+# Harapkan (expect) prompt "Enter 'ok' to proceed:" yang muncul karena flag --advanced.
+# Ini adalah penanganan prompt yang robust.
 expect "Enter 'ok' to proceed:"
-# Kirim (send) "ok" diikuti newline (\r)
+# Kirim (send) "ok" diikuti newline (\r).
 send "ok\n"
 
-# Harapkan prompt password master seed
+# Harapkan prompt password master seed.
 expect "Please enter the password to decrypt the master seed"
-# Kirim password dari environment variable diikuti newline
+# Kirim password dari environment variable diikuti newline.
 send "$clef_master_password\n"
 
-# Biarkan proses Clef berjalan di foreground
-# interact
-# 'interact' memberikan kontrol kembali ke user, tapi dalam Docker detached,
-# ini akan menjaga skrip tetap berjalan dan Clef aktif.
-# Alternatif lain adalah 'expect eof' jika Anda ingin skrip selesai
-# setelah Clef berhasil dimulai, tapi Clef mungkin keluar jika skrip induknya selesai.
-# Gunakan 'interact' agar Clef tetap berjalan.
-
-
-# Tunggu hingga proses clef selesai/menutup output, bukan interact
+# Tunggu hingga proses Clef selesai atau menutup output-nya (end of file).
+# Ini penting agar kontainer Docker tidak langsung keluar setelah skrip selesai.
+# Proses Clef akan tetap berjalan sebagai proses utama.
 expect eof
