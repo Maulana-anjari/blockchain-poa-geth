@@ -1,5 +1,7 @@
 # **Automated Geth Clique PoA Private Blockchain Network Toolkit**
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Maulana-anjari/blockchain-poa-geth)
+
 ### (v1.13.15) with Docker, Clef External Signer, and Integrated Monitoring
 
 ## **Introduction**
