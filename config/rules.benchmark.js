@@ -31,30 +31,14 @@ function ApproveListing() {
  * @returns {string} "Approve" or "Reject".
  */
 function ApproveSignData(r) {
-  // [Secure Mode]
-  // Uncomment this for use secure mode
-  // First, check if the content type matches a Clique header.
-  // if (r.content_type == "application/x-clique-header") {
-  //   // Let Clef perform its internal verification on the message payload.
-  //   for (var i = 0; i < r.messages.length; i++) {
-  //     var msg = r.messages[i];
-  //     // If Clef confirms the message is a valid Clique header...
-  //     if (msg.name == "Clique header" && msg.type == "clique") {
-  //       // ...then automatically approve the signing request.
-  //       console.log("Approved clique header signing for block ", msg.value);
-  //       return "Approve";
-  //     }
-  //   }
-  // }
-
-  // // By default, reject all other types of data signing requests.
-  // // This is a critical security measure to prevent the signer from signing arbitrary data.
-  // console.log("Rejected generic data signing request: ", JSON.stringify(r));
-  // return "Reject";
-
-  // [Benchmarking Mode]
-  // Comment this for secure mode
-  console.log(">>> SIGNING REQUEST RECEIVED: " + JSON.stringify(r));
+  // For benchmarking, we will approve any request to get unblocked.
+  // This includes Clique headers and any transactions sent by Caliper.
+  console.log(
+    ">>> [BENCHMARK MODE] Approving transaction from:",
+    r.transaction.from,
+    "to:",
+    r.transaction.to
+  );
   return "Approve";
 }
 
