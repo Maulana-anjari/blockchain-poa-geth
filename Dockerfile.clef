@@ -1,15 +1,22 @@
 # File: Dockerfile.clef
-# Gunakan image resmi sebagai basis (yang kemungkinan Alpine)
+# This Dockerfile creates a custom image to run a non-interactive Clef signer.
+# It starts with the official Geth 'alltools' image and adds the 'expect'
+# utility, which is used by a script to automate the Clef startup process.
+
+# Use the official Geth 'alltools' image as the base. This image is Alpine-based.
 FROM ethereum/client-go:alltools-v1.13.15
 
-# Instal expect menggunakan package manager Alpine (apk)
-# 'apk update' memperbarui daftar paket
-# 'apk add --no-cache' menginstal paket tanpa menyimpan cache (lebih hemat ruang)
+# Install the 'expect' utility using Alpine's package manager (apk).
+# 'apk update' refreshes the package list from the repositories.
+# 'apk add --no-cache' installs the package without keeping the apk cache,
+# which helps to keep the final image size smaller.
 RUN apk update && apk add --no-cache expect
 
-# Salin skrip startup yang akan menggunakan expect
+# Copy the startup script into the image's binary path. This script uses 'expect'.
 COPY scripts/start-clef.sh /usr/local/bin/start-clef.sh
+# Make the startup script executable.
 RUN chmod +x /usr/local/bin/start-clef.sh
 
-# Set skrip startup sebagai entrypoint atau command default
+# Set the startup script as the container's entrypoint. This script will be
+# executed automatically when the container starts, launching and configuring Clef.
 ENTRYPOINT ["/usr/local/bin/start-clef.sh"]

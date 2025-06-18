@@ -1,23 +1,23 @@
 #!/usr/bin/expect -f
 # File: scripts/start-clef.sh
-# Versi final yang menggabungkan keunggulan skrip asli dengan perbaikan kecil.
+# This script automates the startup of a Clef signer instance, making it suitable for non-interactive
+# environments like a Docker container.
 
-# Ambil password dari environment variable yang akan kita set di docker-compose.
-# Ini adalah praktik terbaik untuk Docker.
+# Retrieve the master password from an environment variable.
+# This is a best practice for passing secrets to containers, typically set in the docker-compose.yml file.
 set clef_master_password $env(CLEF_MASTER_PASSWORD)
 
-# Ambil variabel lain yang diperlukan dari environment.
+# Retrieve other required configuration from environment variables.
 set chain_id $env(NETWORK_ID)
 set keystore_path "/root/.ethereum/keystore"
 set config_dir "/root/.clef"
 set rules_path "/root/rules.js"
 
-# Set timeout tak terbatas agar skrip tidak keluar jika Clef butuh waktu untuk startup.
+# Set an infinite timeout to prevent the script from exiting if Clef is slow to start.
 set timeout -1
 
-# Jalankan (spawn) proses Clef.
-# - Menggunakan parameter yang sudah benar dari skrip asli Anda.
-# - Menambahkan --suppress-bootwarn dari skrip Dchain untuk log yang lebih bersih.
+# Spawn the Clef process with the necessary parameters.
+# --suppress-bootwarn is added for cleaner logs on startup.
 spawn clef \
     --keystore $keystore_path \
     --configdir $config_dir \
@@ -28,23 +28,25 @@ spawn clef \
     --http --http.addr 0.0.0.0 --http.port 8550 --http.vhosts "*" \
     --suppress-bootwarn
 
-# Harapkan prompt password master seed.
+# --- Automation Sequence ---
+# The following block automates the interaction with Clef's startup prompts.
+
+# 1. Expect the master seed password prompt.
 expect "Please enter the password to decrypt the master seed"
-# Kirim password dari environment variable diikuti newline.
+#    Send the password retrieved from the environment variable.
 send "$clef_master_password\n"
 
-# Harapkan (expect) prompt "Enter 'ok' to proceed:" yang muncul karena flag --advanced.
-# Ini adalah penanganan prompt yang robust.
+# 2. Expect the confirmation prompt, which appears due to the --advanced flag.
 expect "Enter 'ok' to proceed:"
-# Kirim (send) "ok" diikuti newline (\r).
+#    Send "ok" to proceed.
 send "ok\n"
 
-# Harapkan prompt persetujuan akun (jika muncul).
+# 3. Expect a potential prompt to approve an account for signing. This may appear on first run.
 expect "Approve? \[y/N\]:"
-# Kirim 'y' untuk menyetujui, diikuti newline.
+#    Send "y" to approve it.
 send "y\n"
 
-# Tunggu hingga proses Clef selesai atau menutup output-nya (end of file).
-# Ini penting agar kontainer Docker tidak langsung keluar setelah skrip selesai.
-# Proses Clef akan tetap berjalan sebagai proses utama.
+# Hand control over to the Clef process and wait for it to terminate (EOF - End Of File).
+# This is crucial; it keeps this script running, which in turn keeps the Docker container alive.
+# The Clef process effectively becomes the foreground process of the container.
 expect eof

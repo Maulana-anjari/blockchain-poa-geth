@@ -1,21 +1,23 @@
 #!/bin/bash
 # File: config.sh
-# Konfigurasi utama untuk jaringan Geth PoA dinamis.
-# Ubah nilai di sini untuk setiap skenario benchmarking.
+# Primary configuration for the dynamic Geth Proof-of-Authority (PoA) network.
+# Adjust the values in this file to define different network or benchmarking scenarios.
 
-# --- Konfigurasi Jumlah Node ---
+# --- Node Count Configuration ---
+# Defines the number of signer (validator) and non-signer (RPC) nodes.
 export NUM_SIGNERS=1
 export NUM_NONSIGNERS=2
 
-# --- Konfigurasi Jaringan & Rahasia ---
+# --- Network & Secrets Configuration ---
 export NETWORK_ID=477748
 export COMPOSE_PROJECT_NAME="geth_clique_poa_dynamic"
 
-# Gunakan prefix untuk password agar mudah ditebak namun unik per node
+# Use a common prefix for passwords to make them predictable during setup, yet unique for each node.
 export SIGNER_PASS_PREFIX="pass_signer_"
 export NONSIGNER_PASS_PREFIX="pass_nonsigner_"
 
-# Rahasia untuk Ethstats dan kredensial database
+# Secrets for the Ethstats monitoring service and database credentials.
+# IMPORTANT: Change these default values for any production-like environment.
 export ETHSTATS_WS_SECRET="YourSuperSecretEthstatsStringHere"
 export INFLUXDB_DB="geth_metrics"
 export INFLUXDB_USER="geth_user"
@@ -24,10 +26,16 @@ export INFLUXDB_HOST="influxdb"
 export INFLUXDB_PORT="8086"
 export GRAFANA_ADMIN_PASSWORD="YourStrongGrafanaAdminPassword"
 
-# --- Konfigurasi Port Mapping ---
-# Port akan dihitung secara dinamis dari base port ini
+# --- Port Mapping Configuration ---
+# Node-specific ports will be calculated dynamically, starting from these base numbers.
+# For example, the first node will use port 30303, the second 30304, and so on.
+# P2P discovery port for Geth nodes
 export BASE_GETH_P2P_PORT=30303
+# HTTP JSON-RPC port
 export BASE_GETH_HTTP_PORT=8545
+# WebSocket JSON-RPC port
 export BASE_GETH_WS_PORT=8546
-export BASE_MONITORING_HTTP_PORT=8080 # Ethstats
+# Ethstats dashboard web server port
+export BASE_MONITORING_HTTP_PORT=8080
+# Grafana dashboard web server port
 export BASE_GRAFANA_HTTP_PORT=3000
