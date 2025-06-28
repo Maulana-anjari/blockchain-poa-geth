@@ -230,6 +230,26 @@ cat >> $OUTPUT_FILE <<EOF
     networks:
       - geth-network
     restart: unless-stopped
+  
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ../caliper-poa-workspace/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - geth-network
+    restart: unless-stopped
+
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: pushgateway
+    ports:
+      - "9091:9091"
+    networks:
+      - geth-network
+    restart: unless-stopped
 
 # --- Network & Volume Definitions ---
 networks:

@@ -6,7 +6,7 @@
 # --- Node Count Configuration ---
 # Defines the number of signer (validator) and non-signer (RPC) nodes.
 export NUM_SIGNERS=1
-export NUM_NONSIGNERS=2
+export NUM_NONSIGNERS=1
 
 # --- Network & Secrets Configuration ---
 export NETWORK_ID=477748
@@ -36,6 +36,6 @@ export BASE_GETH_HTTP_PORT=8545
 # WebSocket JSON-RPC port
 export BASE_GETH_WS_PORT=8546
 # Ethstats dashboard web server port
-export BASE_MONITORING_HTTP_PORT=8080
+export BASE_MONITORING_HTTP_PORT=8085
 # Grafana dashboard web server port
 export BASE_GRAFANA_HTTP_PORT=3000
