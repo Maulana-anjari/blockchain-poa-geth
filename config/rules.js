@@ -31,31 +31,23 @@ function ApproveListing() {
  * @returns {string} "Approve" or "Reject".
  */
 function ApproveSignData(r) {
-  // [Secure Mode]
-  // Uncomment this for use secure mode
-  // First, check if the content type matches a Clique header.
-  // if (r.content_type == "application/x-clique-header") {
-  //   // Let Clef perform its internal verification on the message payload.
-  //   for (var i = 0; i < r.messages.length; i++) {
-  //     var msg = r.messages[i];
-  //     // If Clef confirms the message is a valid Clique header...
-  //     if (msg.name == "Clique header" && msg.type == "clique") {
-  //       // ...then automatically approve the signing request.
-  //       console.log("Approved clique header signing for block ", msg.value);
-  //       return "Approve";
-  //     }
-  //   }
-  // }
+  // Only approve Clique consensus headers, which are necessary for the PoA network to function.
+  if (r.content_type == "application/x-clique-header") {
+    for (var i = 0; i < r.messages.length; i++) {
+      var msg = r.messages[i];
+      if (msg.name == "Clique header" && msg.type == "clique") {
+        console.log(
+          ">>> [SECURE MODE] Approved Clique header signing for block: ",
+          msg.value
+        );
+        return "Approve";
+      }
+    }
+  }
 
-  // // By default, reject all other types of data signing requests.
-  // // This is a critical security measure to prevent the signer from signing arbitrary data.
-  // console.log("Rejected generic data signing request: ", JSON.stringify(r));
-  // return "Reject";
-
-  // [Benchmarking Mode]
-  // Comment this for secure mode
-  console.log(">>> SIGNING REQUEST RECEIVED: " + JSON.stringify(r));
-  return "Approve";
+  // Reject everything else by default.
+  console.log(">>> [SECURE MODE] Denied signing request:", JSON.stringify(r));
+  return "Reject";
 }
 
 /**

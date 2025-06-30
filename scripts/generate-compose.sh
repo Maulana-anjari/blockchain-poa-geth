@@ -235,7 +235,7 @@ cat >> $OUTPUT_FILE <<EOF
     image: prom/prometheus:latest
     container_name: prometheus
     volumes:
-      - ../caliper-poa-workspace/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
     networks:
