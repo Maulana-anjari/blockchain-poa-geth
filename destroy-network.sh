@@ -22,7 +22,6 @@ if [ -f "docker-compose.poa.yml" ]; then
 fi
 if [ -f "docker-compose.pos.yml" ]; then
     docker-compose -f docker-compose.pos.yml down -v --remove-orphans > /dev/null 2>&1 || true
--
 fi
 log_success "All network services stopped and removed."
 
@@ -33,7 +32,6 @@ sudo rm -rf \
     ./config/passwords \
     ./config/addresses \
     ./config/genesis.json \
-    ./config/pos \
     ./docker-compose.poa.yml \
     ./docker-compose.pos.yml \
 log_success "All generated artifacts have been deleted."

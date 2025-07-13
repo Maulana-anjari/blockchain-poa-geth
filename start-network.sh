@@ -7,6 +7,45 @@ set -e
 source ./scripts/logger.sh
 source ./config.sh
 
+# Function to display network status and instructions
+display_status() {
+    local type=$1
+    local compose_file="docker-compose.$type.yml"
+
+    log_action "Network Status"
+    docker-compose -f $compose_file ps
+    log_action "Instructions"
+
+    if [ "$type" == "PoA" ]; then
+        log_info "PoA network is running."
+        log_info "You can attach to any node using its RPC endpoint."
+        log_info "Example for node 1: geth attach http://localhost:8545"
+        local total_nodes=$((POA_NODE_COUNT + POA_NON_SEALER_COUNT))
+        log_info "Available RPC endpoints:"
+        for i in $(seq 1 $total_nodes); do
+            echo "  - Node $i: http://localhost:$((8545 + i - 1))"
+        done
+    elif [ "$type" == "PoS" ]; then
+        log_info "PoS network is running."
+        log_info "Consensus (Beacon) and Execution (Geth) clients are running for each node."
+        log_info "Validator clients are running for validator nodes."
+        local total_nodes=$((POS_VALIDATOR_COUNT + POS_NON_VALIDATOR_COUNT))
+        log_info "Available Geth RPC endpoints:"
+        for i in $(seq 1 $total_nodes); do
+            echo "  - Node $i: http://localhost:$((8545 + i - 1))"
+        done
+        log_info "Available Beacon GRPC endpoints:"
+        for i in $(seq 1 $total_nodes); do
+            echo "  - Node $i: http://localhost:$((4000 + i - 1))"
+        done
+    fi
+
+    log_info "To monitor logs, run: docker-compose -f ${COMPOSE_FILE} logs -f"
+    log_info "Ethstats dashboard: http://localhost:${BASE_MONITORING_HTTP_PORT}"
+    log_info "Grafana dashboard: http://localhost:${BASE_GRAFANA_HTTP_PORT}"
+    log_info "To stop the network, run: ./destroy-network.sh $type"
+}
+
 # --- Pre-flight Checks ---
 log_step "PHASE 1: VALIDATING CONFIGURATION"
 log_action "Checking .env file"
@@ -63,9 +102,4 @@ docker-compose -f ${COMPOSE_FILE} up --build -d
 log_success "Network deployment complete!"
 
 # --- Final Instructions ---
-log_step "NEXT STEPS"
-log_info "To monitor logs, run: docker-compose -f ${COMPOSE_FILE} logs -f"
-if [ "$NETWORK_TYPE" == "PoA" ]; then
-    log_info "Ethstats dashboard: http://localhost:${BASE_MONITORING_HTTP_PORT}"
-    log_info "Grafana dashboard: http://localhost:${BASE_GRAFANA_HTTP_PORT}"
-fi
+display_status $NETWORK_TYPE

@@ -6,44 +6,152 @@ set -e
 source ./scripts/logger.sh
 source ./config.sh
 
-log_step "PoS SETUP: CLEANUP & PREPARATION"
-log_action "Cleaning up previous data and creating PoS directories"
-if [ -f "./destroy-network.sh" ]; then
-    chmod +x ./destroy-network.sh && ./destroy-network.sh > /dev/null 2>&1
-fi
-mkdir -p ./data/pos/jwtsecret
-mkdir -p ./data/pos/consensus/beacondata
-mkdir -p ./data/pos/consensus/validatordata
-mkdir -p ./data/pos/execution/geth
-mkdir -p ./config/pos
-log_success "Directories created."
+# Direktori utama untuk data PoS
+DATA_DIR_POS="data/pos"
 
-log_step "PoS SETUP: JWT SECRET GENERATION"
-log_action "Generating JWT secret for secure EL-CL communication"
-openssl rand -hex 32 | tr -d "\n" > ./data/pos/jwtsecret/jwt.hex
-export JWT_SECRET_PATH=$(pwd)/data/pos/jwtsecret/jwt.hex
-log_success "JWT secret generated at: ${JWT_SECRET_PATH}"
+# Jumlah total node
+TOTAL_NODES=$((POS_VALIDATOR_COUNT + POS_NON_VALIDATOR_COUNT))
 
-log_step "PoS SETUP: CONSENSUS GENESIS & VALIDATOR KEYS"
-log_action "Generating consensus layer genesis and validator keys using Prysm"
-log_info "This may take a moment..."
-docker run --rm -it \
-    -v $(pwd)/config/pos:/conf \
-    -v $(pwd)/data/pos/consensus/validatordata:/validator_keys \
-    -v $(pwd)/config/genesis.template.pos.json:/genesis_in.json \
-    -v $(pwd)/config/genesis.json:/genesis_out.json \
-    ${CONSENSUS_CLIENT_IMAGE} \
-    testnet-generator \
-    --fork-version=0x00000079 \
-    --num-validators=${NUM_VALIDATORS} \
-    --output-ssz=/conf/genesis.ssz \
-    --chain-config-file=/conf/config.yml \
-    --geth-genesis-json-in=/genesis_in.json \
-    --geth-genesis-json-out=/genesis_out.json
-log_success "Consensus configuration and validator keys generated."
+# Fungsi untuk membuat akun Geth dan bootkey
+setup_geth_node() {
+    local node_index=$1
+    local node_dir="$DATA_DIR_POS/node${node_index}"
+    local execution_dir="$node_dir/execution"
+    local beacondata_dir="$node_dir/consensus/beacondata"
+    local validatordata_dir="$node_dir/consensus/validatordata"
 
-log_step "PoS SETUP: DOCKER COMPOSE FILE GENERATION"
-log_action "Generating the docker-compose.pos.yml file"
-chmod +x ./scripts/generate-compose.sh
-./scripts/generate-compose.sh
-log_success "docker-compose.pos.yml generated."
+    log_info "Creating directory for node $node_index at $node_dir"
+    mkdir -p "$execution_dir"
+
+    log_info "Creating consensus beacondata directories for node $node_index..."
+    mkdir -p "$beacondata_dir"
+
+    log_info "Creating consensus validator data directory for node $node_index..."
+    mkdir -p "$validatordata_dir"
+
+    log_success "Directories created."
+
+    log_info "Creating Geth account for node $node_index..."
+    ADDR=$(docker run --rm -i \
+        -v "$(pwd)/$execution_dir:/data" \
+        -v "$(pwd)/$DATA_DIR_POS/password.pass:/pass" \
+        $GETH_IMAGE_TAG_POS \
+        geth account new --datadir /data --password /pass \
+        | grep "Public address of the key" | awk '{print $NF}')
+    
+    echo -n "$ADDR" > ./config/addresses/node${node_index}.addr
+    echo -e "NODE${node_index}_ADDRESS=$ADDR"
+    sed -i "/^NODE${node_index}_ADDRESS=/d" .env
+    echo "NODE${node_index}_ADDRESS=$ADDR" >> .env
+    export "NODE${node_index}_ADDRESS=$ADDR"
+
+    log_info "Creating bootkey for node $node_index..."
+    mkdir -p "$execution_dir/geth"
+    docker run --rm -v "$(pwd)/$execution_dir/geth:/geth" ${GETH_IMAGE_TAG_POS} bootnode -genkey  /geth/nodekey
+    sudo chown -R $(id -u):$(id -g) "$execution_dir"
+    log_success "Bootkey generated."
+}
+
+setup_pos_network() {
+    log_step "Starting Proof-of-Stake Network Setup"
+    log_step "PoS SETUP: CLEANUP & PREPARATION"
+    log_action "Cleaning up previous data and creating PoS directories"
+    if [ -f "./destroy-network.sh" ]; then
+        chmod +x ./destroy-network.sh && ./destroy-network.sh > /dev/null 2>&1
+    fi
+
+    mkdir -p "$DATA_DIR_POS"
+    log_success "Created PoS data directory: $DATA_DIR_POS"
+    mkdir -p config/{passwords,addresses} $DATA_DIR_POS/influxdb $DATA_DIR_POS/grafana
+
+    log_info "Copying genesis and config templates..."
+    cp config/pos_template/password.pass "$DATA_DIR_POS/password.pass"
+    cp config/pos_template/genesis.json "$DATA_DIR_POS/genesis.json"
+    cp config/pos_template/config.yml "$DATA_DIR_POS/config.yml"
+    log_success "Copied templates."
+
+    log_step "PoS SETUP: JWT SECRET GENERATION"
+    log_action "Generating JWT secret for secure EL-CL communication"
+    openssl rand -hex 32 | tr -d "\n" > "$DATA_DIR_POS/jwt.hex"
+    export JWT_SECRET_PATH=$(pwd)/$DATA_DIR_POS/jwt.hex
+    log_success "JWT secret generated at $DATA_DIR_POS/jwt.hex"
+
+    for i in $(seq 1 $TOTAL_NODES); do
+        setup_geth_node $i
+    done
+
+    log_step "PoS SETUP: CONSENSUS GENESIS & VALIDATOR KEYS"
+    log_info "Generating validator keys for $POS_VALIDATOR_COUNT validators..."
+    docker run --rm -v "$(pwd)/$DATA_DIR_POS:/data" $PRYSM_CTL_IMAGE \
+        testnet \
+        generate-genesis \
+        --fork=deneb \
+        --num-validators=$POS_VALIDATOR_COUNT \
+        --output-ssz=/data/genesis.ssz \
+        --chain-config-file=/data/config.yml \
+        --geth-genesis-json-in=/data/genesis.json \
+        --geth-genesis-json-out=/data/genesis.json
+    log_success "Consensus configuration and validator keys generated."
+
+    log_info "PoS SETUP: PRE-GENERATE NODE 1 CONSENSUS DATA"
+    log_action "Pre-generating consensus data for node 1 to retrieve bootnode ENR"
+    local enr_log
+    enr_log=$(timeout 15s docker run --rm \
+        -v "$(pwd)/$DATA_DIR_POS/node1/consensus:/data" \
+        -v "$(pwd)/$DATA_DIR_POS/genesis.ssz:/genesis.ssz" \
+        -v "$(pwd)/$DATA_DIR_POS/config.yml:/config.yml" \
+        "$CONSENSUS_CLIENT_IMAGE" \
+        --datadir=/data \
+        --chain-config-file=/config.yml \
+        --genesis-state=/genesis.ssz \
+        --p2p-static-id \
+        --accept-terms-of-use \
+        --min-sync-peers=999 2>&1 || true)
+    # The ENR is logged in a line containing ENR="...". We extract it from there.
+    local bootnode_cl_enr
+    bootnode_cl_enr=$(echo "$enr_log" | grep -o 'ENR="[^"]*"' | cut -d'"' -f2)
+
+    if [ -z "$bootnode_cl_enr" ]; then
+        log_error "Could not find bootnode ENR in the container logs."
+        log_error "Prysm log output:"
+        echo "$enr_log"
+        exit 1
+    fi
+
+    log_info "Generated ENR: $bootnode_cl_enr"
+    log_info "Updating BOOTSTRAP_CL_ENR in .env file..."
+
+    # Create .env if it doesn't exist, then update the variable.
+    touch .env
+    # Remove the old line to prevent duplicates, then append the new one.
+    sed -i '/^BOOTSTRAP_CL_ENR=/d' .env
+    echo "BOOTSTRAP_CL_ENR=\"$bootnode_cl_enr\"" >> .env
+    log_success "Successfully saved BOOTSTRAP_CL_ENR to .env"
+    log_success "Node 1 consensus data pre-generated."
+
+    log_info "Initializing Geth for all nodes..."
+    for i in $(seq 1 $TOTAL_NODES); do
+        local node_dir="$DATA_DIR_POS/node$i"
+        local execution_dir="$node_dir/execution"
+        log_info "Initializing Geth for node $i..."
+        docker run --rm -i \
+            -v "$(pwd)/$execution_dir:/data" \
+            -v "$(pwd)/$DATA_DIR_POS:/datapos" \
+            $GETH_IMAGE_TAG_POS \
+            geth init --datadir /data /datapos/genesis.json
+    done
+    log_success "All Geth nodes initialized."
+
+    log_step "PoS SETUP: DOCKER COMPOSE FILE GENERATION"
+    log_action "Generating the docker-compose.pos.yml file"
+    chmod +x ./scripts/generate-compose.sh
+    ./scripts/generate-compose.sh
+    log_success "docker-compose.pos.yml generated."
+
+    log_success "Proof-of-Stake Network Setup Complete!"
+    log_info "Total nodes created: $TOTAL_NODES"
+    log_info "  - Validator nodes: $POS_VALIDATOR_COUNT"
+    log_info "  - Non-validator nodes: $POS_NON_VALIDATOR_COUNT"
+}
+
+setup_pos_network
