@@ -92,6 +92,17 @@ fi
 # --- Network Deployment ---
 log_step "PHASE 3: DEPLOYING NETWORK"
 COMPOSE_FILE="docker-compose.${NETWORK_TYPE,,}.yml"
+# Construct the network name from the .env file for consistency.
+NETWORK_NAME=${COMPOSE_PROJECT_NAME}_net
+
+log_action "Checking for existing Docker network: ${NETWORK_NAME}"
+if ! docker network ls | grep -q ${NETWORK_NAME}; then
+  log_info "Network not found. Creating Docker network: ${NETWORK_NAME}"
+  docker network create ${NETWORK_NAME}
+  log_success "Network created."
+else
+  log_info "Network already exists."
+fi
 
 log_action "Tearing down any existing network to ensure a clean start"
 docker-compose -f ${COMPOSE_FILE} down --volumes > /dev/null 2>&1 || true
