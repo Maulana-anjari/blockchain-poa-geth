@@ -29,24 +29,19 @@ spawn clef \
     --suppress-bootwarn
 
 # --- Automation Sequence ---
-# The following block automates the interaction with Clef's startup prompts.
-
-# 1. Expect the master seed password prompt.
-expect "Please enter the password to decrypt the master seed"
-#    Send the password retrieved from the environment variable.
-send "$clef_master_password\n"
-
-# 2. Expect the confirmation prompt, which appears due to the --advanced flag.
-expect "Enter 'ok' to proceed:"
-#    Send "ok" to proceed.
-send "ok\n"
-
-# 3. Expect a potential prompt to approve an account for signing. This may appear on first run.
-expect "Approve? \[y/N\]:"
-#    Send "y" to approve it.
-send "y\n"
-
-# Hand control over to the Clef process and wait for it to terminate (EOF - End Of File).
-# This is crucial; it keeps this script running, which in turn keeps the Docker container alive.
-# The Clef process effectively becomes the foreground process of the container.
-expect eof
+# This loop handles Clef's startup prompts in a robust way.
+expect {
+    -re "Password|password" {
+        send "$clef_master_password\n"
+        exp_continue
+    }
+    "Enter 'ok' to proceed:" {
+        send "ok\n"
+        exp_continue
+    }
+    "Approve? \[y/N\]:" {
+        send "y\n"
+        exp_continue
+    }
+    eof
+}

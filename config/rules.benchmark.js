@@ -27,7 +27,6 @@ function ApproveListing() {
  * This function is called by Clef for every data signing request that requires approval.
  * It uses the 'CLEF_MODE' environment variable to switch between a secure default
  * and a permissive benchmark mode.
- * * @param {object} r - The request object from Clef, containing details about the signing request.
  * @returns {string} "Approve" or "Reject".
  */
 function ApproveSignData(r) {
