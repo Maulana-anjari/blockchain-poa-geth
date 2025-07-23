@@ -313,6 +313,7 @@ generate_pos_compose() {
     container_name: execution_node$i
     hostname: execution_node$i
     command: >
+      geth
       --nodekey=/root/.ethereum/geth/nodekey --datadir=/root/.ethereum --keystore=/root/.ethereum/keystore
       --networkid=\${NETWORK_ID} --http --http.addr=0.0.0.0 --http.api=admin,debug,engine,eth,miner,net,rpc,txpool,web3
       --http.corsdomain=* --http.port=8545 --http.vhosts=* --ws --ws.api=eth,net,web3,engine,admin --ws.addr=0.0.0.0

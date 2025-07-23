@@ -7,7 +7,7 @@ source ./scripts/logger.sh
 source ./config.sh
 
 # Direktori utama untuk data PoS
-DATA_DIR_POS="data/pos"
+DATA_DIR_POS="./data/pos"
 
 # Jumlah total node
 TOTAL_NODES=$((POS_VALIDATOR_COUNT + POS_NON_VALIDATOR_COUNT))
@@ -40,14 +40,6 @@ setup_geth_node() {
     echo "NODE${node_index}_ADDRESS=$ADDR" >> .env
     export "NODE${node_index}_ADDRESS=$ADDR"
     log_success "Geth account created: $ADDR"
-
-    log_info "Creating bootkey for node $node_index..."
-    docker run --rm \
-        --user "$user_id:$group_id" \
-        -v "$(pwd)/$execution_dir:/execution" \
-        -v "$(pwd)/$DATA_DIR_POS/genesis.json:/execution/genesis.json" \
-        ${GETH_IMAGE_TAG_POS} --datadir=/execution init  
-    log_success "Bootkey generated."
 }
 
 setup_pos_network() {
