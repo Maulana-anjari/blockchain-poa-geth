@@ -89,7 +89,8 @@ generate_footer() {
 networks:
   skripsidchain:
     external: true
-    name: \${COMPOSE_PROJECT_NAME}_net
+    driver: bridge
+    name: skripsidchain
 
 volumes:
   grafana_data: {}
@@ -251,44 +252,17 @@ EOF
 }
 generate_pos_compose() {
     local compose_file="docker-compose.pos.yml"
-    local debug_log_file="prysm-debug.log"
     rm -f $compose_file
-    rm -f $debug_log_file
     log_info "Generating $compose_file for $POS_VALIDATOR_COUNT validators and $POS_NON_VALIDATOR_COUNT non-validators..."
 
     local total_nodes=$((POS_VALIDATOR_COUNT + POS_NON_VALIDATOR_COUNT))
+    # Setting min-sync-peers to 0 for local testnets is often more stable,
+    # as nodes can start processing blocks even before finding all peers.
+    local min_sync_peers=0
+
     local data_dir_pos="./data/pos"
-    local abs_data_dir_pos="$(pwd)/$data_dir_pos"
-    local user_id=$(id -u)
-    local group_id=$(id -g)
 
     echo "services:" > $compose_file
-
-    log_info "Retrieving bootnode information from node1..."
-    local bootnode_cl_enr=$BOOTSTRAP_CL_ENR
-    local bootnode_el_pubkey=$(docker run --rm --user "$user_id:$group_id" -v "$abs_data_dir_pos/node1/execution/geth:/geth" ${GETH_IMAGE_TAG_POS} bootnode --nodekey=/geth/nodekey -writeaddress)
-    local bootnode_el_url="enode://$bootnode_el_pubkey@execution_node1:30303"
-    
-    local peer_id_node1
-    log_info "Attempting to retrieve Peer ID from node1 logs (output will be in $debug_log_file)..."
-    timeout 15s docker run --rm --user "$user_id:$group_id" \
-        -v "$abs_data_dir_pos/node1/consensus:/data" \
-        -v "$abs_data_dir_pos/genesis.ssz:/genesis.ssz" \
-        -v "$abs_data_dir_pos/config.yml:/config.yml" \
-        "$CONSENSUS_CLIENT_IMAGE" \
-        --datadir=/data --chain-config-file=/config.yml --genesis-state=/genesis.ssz \
-        --p2p-static-id --accept-terms-of-use --min-sync-peers=999 > "$debug_log_file" 2>&1 || true
-    
-    peer_id_node1=$(grep -o 'peer id of [^ ]*' "$debug_log_file" | head -n 1 | awk '{print $NF}' | tr -d '[:space:]')
-    local bootnode_cl_peer="/ip4/consensus_node1/tcp/13000/p2p/$peer_id_node1"
-
-    if [ -z "$bootnode_el_pubkey" ] || [ -z "$peer_id_node1" ]; then
-        log_error "Failed to retrieve bootnode information. Make sure node1 is set up correctly."
-        log_info "Dumping node1 consensus log for debugging from $debug_log_file:"
-        cat "$debug_log_file"
-        exit 1
-    fi
-    log_success "Successfully retrieved bootnode details."
 
     for i in $(seq 1 $total_nodes); do
         local is_validator=false
@@ -302,9 +276,10 @@ generate_pos_compose() {
         local cl_grpc_port=$((4000 + i - 1))
         local cl_gateway_port=$((3500 + i - 1))
 
+        # --- Geth (Execution Node) ---
         local geth_bootnode_param=""
         if [ $i -gt 1 ]; then
-            geth_bootnode_param="--bootnodes=${bootnode_el_url}"
+            geth_bootnode_param="--bootnodes=\${BOOTNODE_EL_ENODE}"
         fi
 
         cat >> "$compose_file" <<EOF
@@ -314,11 +289,11 @@ generate_pos_compose() {
     hostname: execution_node$i
     command: >
       geth
-      --nodekey=/root/.ethereum/geth/nodekey --datadir=/root/.ethereum --keystore=/root/.ethereum/keystore
+      --nodekey /root/.ethereum/geth/nodekey --datadir=/root/.ethereum --keystore=/root/.ethereum/keystore
       --networkid=\${NETWORK_ID} --http --http.addr=0.0.0.0 --http.api=admin,debug,engine,eth,miner,net,rpc,txpool,web3
       --http.corsdomain=* --http.port=8545 --http.vhosts=* --ws --ws.api=eth,net,web3,engine,admin --ws.addr=0.0.0.0
       --ws.port=8546 --ws.origins=* --authrpc.vhosts=* --authrpc.addr=0.0.0.0 --authrpc.port=8551
-      --authrpc.jwtsecret=/root/jwt.hex ${geth_bootnode_param} --port=${el_p2p_port} --allow-insecure-unlock
+      --authrpc.jwtsecret=/root/jwt.hex ${geth_bootnode_param} --port=30303 --allow-insecure-unlock
       --unlock=\${NODE${i}_ADDRESS} --password=/root/password.txt --syncmode=full
       --metrics --metrics.addr=0.0.0.0 --metrics.port=6060 --metrics.expensive
       --metrics.influxdb --metrics.influxdb.endpoint="http://influxdb:8086"
@@ -331,8 +306,8 @@ generate_pos_compose() {
     ports:
       - "${el_http_port}:8545"
       - "${el_ws_port}:8546"
-      - "${el_p2p_port}:${el_p2p_port}"
-      - "${el_p2p_port}:${el_p2p_port}/udp"
+      - "${el_p2p_port}:30303"
+      - "${el_p2p_port}:30303/udp"
     networks:
       - skripsidchain
     restart: unless-stopped
@@ -344,6 +319,13 @@ EOF
 EOF
         fi
 
+        # --- Prysm (Consensus Node) ---
+        local prysm_peer_param=""
+        if [ $i -gt 1 ]; then
+            # This placeholder will be replaced by the setup script with the actual ENR.
+            prysm_peer_param="--bootstrap-node=PLACEHOLDER_ENR"
+        fi
+
         cat >> "$compose_file" <<EOF
   consensus_node$i:
     image: ${CONSENSUS_CLIENT_IMAGE}
@@ -351,7 +333,7 @@ EOF
     hostname: consensus_node$i
     command: >
       --datadir=/root/consensus/beacondata --chain-config-file=/config/config.yml --genesis-state=/config/genesis.ssz
-      --bootstrap-node=${bootnode_cl_enr} --min-sync-peers=0 --p2p-static-id=true
+      ${prysm_peer_param} --min-sync-peers=${min_sync_peers} --p2p-static-id=true
       --contract-deployment-block=0 --chain-id=\${NETWORK_ID} --execution-endpoint=http://execution_node${i}:8551
       --suggested-fee-recipient=\${NODE${i}_ADDRESS} --enable-debug-rpc-endpoints --minimum-peers-per-subnet=0
       --jwt-secret=/root/jwt.hex --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
@@ -378,6 +360,7 @@ EOF
 EOF
         fi
 
+        # --- Prysm (Validator) ---
         if $is_validator; then
             local num_validators_per_node=$((64 / POS_VALIDATOR_COUNT))
             local val_start_index=$(((i - 1) * num_validators_per_node))

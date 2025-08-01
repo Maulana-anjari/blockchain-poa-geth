@@ -90,7 +90,7 @@ deploy_network() {
     log_success "Previous network services stopped and removed."
 
     log_action "Starting the ${NETWORK_TYPE} network via Docker Compose"
-    docker-compose -f "${compose_file}" up --build -d
+    docker-compose -f "${compose_file}" --env-file .env up --build -d
     log_success "Network deployment complete!"
 }
 

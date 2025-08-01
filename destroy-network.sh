@@ -59,6 +59,8 @@ if [ -f ".env" ]; then
         -e '/^NONSIGNER[0-9]*_ADDRESS=/d' \
         -e '/^BOOTSTRAP_CL_ENR=/d' \
         -e '/^BOOTNODE_ENODE=/d' \
+        -e '/^BOOTNODE_EL_ENODE=/d' \
+        -e '/^BOOTSTRAP_CL_PEER_ID=/d' \
         .env
     log_success ".env file cleaned."
 fi
