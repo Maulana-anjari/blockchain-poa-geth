@@ -29,7 +29,7 @@ log_action "Removing Docker network"
 if [ -f ".env" ]; then
     # Load config to get COMPOSE_PROJECT_NAME
     source ./config.sh
-    NETWORK_NAME=${COMPOSE_PROJECT_NAME}_net
+    NETWORK_NAME="skripsidchain"
     if docker network ls | grep -q ${NETWORK_NAME}; then
         docker network rm ${NETWORK_NAME} > /dev/null 2>&1
         log_success "Network '${NETWORK_NAME}' removed."

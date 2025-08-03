@@ -323,7 +323,7 @@ EOF
         local prysm_peer_param=""
         if [ $i -gt 1 ]; then
             # This placeholder will be replaced by the setup script with the actual ENR.
-            prysm_peer_param="--bootstrap-node=PLACEHOLDER_ENR"
+            prysm_peer_param="--bootstrap-node=\${BOOTSTRAP_CL_ENR}"
         fi
 
         cat >> "$compose_file" <<EOF
@@ -332,17 +332,17 @@ EOF
     container_name: consensus_node$i
     hostname: consensus_node$i
     command: >
-      --datadir=/root/consensus/beacondata --chain-config-file=/config/config.yml --genesis-state=/config/genesis.ssz
+      --datadir=/prysm/consensus/beacondata --chain-config-file=/prysm/config.yml --genesis-state=/prysm/genesis.ssz
       ${prysm_peer_param} --min-sync-peers=${min_sync_peers} --p2p-static-id=true
       --contract-deployment-block=0 --chain-id=\${NETWORK_ID} --execution-endpoint=http://execution_node${i}:8551
       --suggested-fee-recipient=\${NODE${i}_ADDRESS} --enable-debug-rpc-endpoints --minimum-peers-per-subnet=0
-      --jwt-secret=/root/jwt.hex --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
+      --jwt-secret=/prysm/jwt.hex --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
       --p2p-tcp-port=${cl_p2p_port} --p2p-udp-port=${cl_p2p_port} --rpc-port=4000 --grpc-gateway-port=3500 --interop-eth1data-votes
     volumes:
-      - ${data_dir_pos}/node${i}/consensus:/root/consensus
-      - ${data_dir_pos}/config.yml:/config/config.yml
-      - ${data_dir_pos}/genesis.ssz:/config/genesis.ssz
-      - ${data_dir_pos}/jwt.hex:/root/jwt.hex
+      - ${data_dir_pos}/node${i}/consensus:/prysm/consensus
+      - ${data_dir_pos}/config.yml:/prysm/config.yml
+      - ${data_dir_pos}/genesis.ssz:/prysm/genesis.ssz
+      - ${data_dir_pos}/jwt.hex:/prysm/jwt.hex
     ports:
       - "${cl_p2p_port}:${cl_p2p_port}"
       - "${cl_p2p_port}:${cl_p2p_port}/udp"

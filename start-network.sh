@@ -74,7 +74,7 @@ perform_initial_setup() {
 deploy_network() {
     log_step "PHASE 3: DEPLOYING NETWORK"
     local compose_file="docker-compose.${NETWORK_TYPE,,}.yml"
-    local network_name="${COMPOSE_PROJECT_NAME}_net"
+    local network_name="skripsidchain"
 
     log_action "Checking for existing Docker network: ${network_name}"
     if ! docker network ls | grep -q "${network_name}"; then

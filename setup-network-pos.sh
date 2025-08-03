@@ -6,6 +6,17 @@ set -e
 source ./scripts/logger.sh
 source ./config.sh
 
+# Make User and Group ID available to all scripts via .env
+# This ensures the .env file is not overwritten, preserving existing variables.
+if [ ! -f .env ]; then
+    touch .env
+fi
+sed -i '/^USER_ID=/d' .env
+echo "USER_ID=$(id -u)" >> .env
+sed -i '/^GROUP_ID=/d' .env
+echo "GROUP_ID=$(id -g)" >> .env
+source ./.env
+
 # Direktori utama untuk data PoS
 DATA_DIR_POS="./data/pos"
 
@@ -137,64 +148,115 @@ generate_bootnode_details() {
     fi
     local bootnode_el_enode="enode://$el_pubkey@execution_node1:30303"
     log_info "Generated Geth enode: $bootnode_el_enode"
-    touch .env
     sed -i '/^BOOTNODE_EL_ENODE=/d' .env
     echo "BOOTNODE_EL_ENODE=\"$bootnode_el_enode\"" >> .env
     log_success "Successfully saved BOOTNODE_EL_ENODE to .env"
 
     # --- Prysm Bootnode ENR and Peer ID ---
-    log_action "Pre-generating consensus data for node 1 to retrieve bootnode ENR and Peer ID"
-    local network_name="skripsidchain"
-    docker run --rm -d --name temp_prysm_node \
-        --user "$user_id:$group_id" \
-        --network "$network_name" \
-        --network-alias consensus_node1 \
-        -v "$(pwd)/$DATA_DIR_POS/node1/consensus:/data" \
-        -v "$(pwd)/$DATA_DIR_POS/genesis.ssz:/genesis.ssz" \
-        -v "$(pwd)/$DATA_DIR_POS/config.yml:/config.yml" \
-        "$CONSENSUS_CLIENT_IMAGE" \
-        --datadir=/data \
-        --chain-config-file=/config.yml \
-        --genesis-state=/genesis.ssz \
-        --p2p-static-id \
-        --p2p-host-dns=consensus_node1 \
-        --p2p-tcp-port=13000 \
-        --p2p-udp-port=13000 \
-        --accept-terms-of-use \
-        --min-sync-peers=999 > /dev/null 2>&1
+    log_action "Temporarily starting node 1 to retrieve its real ENR..."
+    local temp_compose_file="docker-compose.node1.yml"
+    local data_dir_pos="./data/pos"
 
-    log_info "Waiting for ENR and Peer ID to be generated..."
-    local enr_log
-    for i in {1..30}; do
-        sleep 2
-        enr_log=$(docker logs temp_prysm_node 2>&1)
-        bootnode_cl_enr=$(echo "$enr_log" | grep -o 'ENR="[^"]*"' | cut -d'"' -f2)
-        bootnode_cl_peer_id=$(echo "$enr_log" | grep "Running node with peer id" | grep -o '16Uiu2H[a-zA-Z0-9]*')
+    # Create a temporary docker-compose for node 1 only
+    cat > "$temp_compose_file" <<EOF
+services:
+  execution_node1:
+    image: ${GETH_IMAGE_TAG_POS}
+    container_name: execution_node1
+    hostname: execution_node1
+    user: "${USER_ID}:${GROUP_ID}"
+    command: >
+      geth
+      --nodekey /root/.ethereum/geth/nodekey --datadir=/root/.ethereum --keystore=/root/.ethereum/keystore
+      --networkid=${NETWORK_ID}
+      --http --http.addr=0.0.0.0 --http.api=admin,debug,engine,eth,miner,net,rpc,txpool,web3
+      --http.corsdomain=*
+      --http.port=8545 --http.vhosts=*
+      --ws --ws.api=eth,net,web3,engine,admin --ws.addr=0.0.0.0
+      --ws.port=8546 --ws.origins=*
+      --authrpc.vhosts=*
+      --authrpc.addr=0.0.0.0
+      --authrpc.port=8551
+      --authrpc.jwtsecret=/root/jwt.hex --port=30303 --allow-insecure-unlock
+      --unlock=${NODE1_ADDRESS}
+      --password=/root/password.txt --syncmode=full
+    volumes:
+      - ${data_dir_pos}/node1/execution:/root/.ethereum
+      - ${data_dir_pos}/jwt.hex:/root/jwt.hex
+      - ${data_dir_pos}/password.pass:/root/password.txt
+    networks:
+      - skripsidchain
+    restart: unless-stopped
 
-        if [ -n "$bootnode_cl_enr" ] && [ -n "$bootnode_cl_peer_id" ]; then
-            log_success "ENR and Peer ID found!"
-            break
-        fi
-    done
-    docker stop temp_prysm_node > /dev/null 2>&1
-    
-    if [ -z "$bootnode_cl_enr" ] || [ -z "$bootnode_cl_peer_id" ]; then
-        log_error "Could not find bootnode ENR or Peer ID in the container logs."
-        log_error "Prysm log output:"
-        echo "$enr_log"
-        exit 1
+  consensus_node1:
+    image: ${CONSENSUS_CLIENT_IMAGE}
+    container_name: consensus_node1
+    hostname: consensus_node1
+    user: "${USER_ID}:${GROUP_ID}"
+    command: >
+      --datadir=/prysm/consensus/beacondata --chain-config-file=/prysm/config.yml --genesis-state=/prysm/genesis.ssz
+      --min-sync-peers=0 --p2p-static-id=true
+      --contract-deployment-block=0 --chain-id=${NETWORK_ID}
+      --execution-endpoint=http://execution_node1:8551
+      --suggested-fee-recipient=${NODE1_ADDRESS}
+      --enable-debug-rpc-endpoints --minimum-peers-per-subnet=0
+      --jwt-secret=/prysm/jwt.hex --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
+      --p2p-tcp-port=13000 --p2p-udp-port=13000 --rpc-port=4000 --grpc-gateway-port=3500 --interop-eth1data-votes
+    volumes:
+      - ${data_dir_pos}/node1/consensus:/prysm/consensus
+      - ${data_dir_pos}/config.yml:/prysm/config.yml
+      - ${data_dir_pos}/genesis.ssz:/prysm/genesis.ssz
+      - ${data_dir_pos}/jwt.hex:/prysm/jwt.hex
+    ports:
+      - "13000:13000/tcp"
+      - "13000:13000/udp"
+    networks:
+      - skripsidchain
+    restart: unless-stopped
+    depends_on:
+      - execution_node1
+
+networks:
+  skripsidchain:
+    external: true
+EOF
+
+docker-compose -f "$temp_compose_file" --env-file .env up -d
+
+log_info "Waiting for ENR and Peer ID to be generated by the running node 1..."
+local enr_log
+for i in {1..30}; do
+    sleep 2
+    enr_log=$(docker logs consensus_node1 2>&1)
+    bootnode_cl_enr=$(echo "$enr_log" | grep 'ENR=' | grep -o 'enr:-[a-zA-Z0-9_-]*' | head -n 1)
+    bootnode_cl_peer_id=$(echo "$enr_log" | grep "Running node with peer id" | grep -o '16Uiu2H[a-zA-Z0-9]*')
+
+    if [ -n "$bootnode_cl_enr" ] && [ -n "$bootnode_cl_peer_id" ]; then
+        log_success "ENR and Peer ID found!"
+        break
     fi
+done
 
-    log_info "Generated ENR: $bootnode_cl_enr"
-    log_info "Generated Peer ID: $bootnode_cl_peer_id"
-    
-    log_info "Updating BOOTSTRAP_CL_ENR and BOOTSTRAP_CL_PEER_ID in .env file..."
-    touch .env
-    sed -i '/^BOOTSTRAP_CL_ENR=/d' .env
-    sed -i '/^BOOTSTRAP_CL_PEER_ID=/d' .env
-    echo "BOOTSTRAP_CL_ENR=\"$bootnode_cl_enr\"" >> .env
-    echo "BOOTSTRAP_CL_PEER_ID=\"$bootnode_cl_peer_id\"" >> .env
-    log_success "Successfully saved bootstrap info to .env"
+log_info "Stopping temporary node 1..."
+docker-compose -f "$temp_compose_file" down
+rm "$temp_compose_file"
+
+if [ -z "$bootnode_cl_enr" ] || [ -z "$bootnode_cl_peer_id" ]; then
+    log_error "Could not find bootnode ENR or Peer ID in the container logs."
+    log_error "Prysm log output:"
+    echo "$enr_log"
+    exit 1
+fi
+
+log_info "Generated ENR: $bootnode_cl_enr"
+log_info "Generated Peer ID: $bootnode_cl_peer_id"
+
+log_info "Updating BOOTSTRAP_CL_ENR and BOOTSTRAP_CL_PEER_ID in .env file..."
+sed -i '/^BOOTSTRAP_CL_ENR=/d' .env
+sed -i '/^BOOTSTRAP_CL_PEER_ID=/d' .env
+echo "BOOTSTRAP_CL_ENR=\"$bootnode_cl_enr\"" >> .env
+echo "BOOTSTRAP_CL_PEER_ID=\"$bootnode_cl_peer_id\"" >> .env
+log_success "Successfully saved bootstrap info to .env"
 }
 
 initialize_all_geth_nodes() {
@@ -233,10 +295,6 @@ generate_and_configure_compose_file() {
 
 setup_pos_network() {
     log_step "Starting Proof-of-Stake Network Setup"
-    
-    local USER_ID=$(id -u)
-    local GROUP_ID=$(id -g)
-
     cleanup_and_prepare
     generate_jwt_secret
     setup_all_geth_nodes "$USER_ID" "$GROUP_ID"
