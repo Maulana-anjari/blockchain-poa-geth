@@ -12,6 +12,10 @@ DATA_DIR_POS="./data/pos"
 # Jumlah total node
 TOTAL_NODES=$((POS_VALIDATOR_COUNT + POS_NON_VALIDATOR_COUNT))
 
+# Global variables for bootnode details, will be set by generate_bootnode_details
+bootnode_cl_enr=""
+bootnode_cl_peer_id=""
+
 # Fungsi untuk membuat akun Geth dan bootkey
 setup_geth_node() {
     local node_index=$1
@@ -42,12 +46,7 @@ setup_geth_node() {
     log_success "Geth account created: $ADDR"
 }
 
-setup_pos_network() {
-    log_step "Starting Proof-of-Stake Network Setup"
-    
-    local USER_ID=$(id -u)
-    local GROUP_ID=$(id -g)
-
+cleanup_and_prepare() {
     log_step "PoS SETUP: CLEANUP & PREPARATION"
     log_action "Cleaning up previous data and creating PoS directories"
     if [ -f "./destroy-network.sh" ]; then
@@ -72,21 +71,32 @@ setup_pos_network() {
     cp config/pos_template/genesis.json "$DATA_DIR_POS/genesis.json"
     cp config/pos_template/config.yml "$DATA_DIR_POS/config.yml"
     log_success "Copied templates."
+}
 
+generate_jwt_secret() {
     log_step "PoS SETUP: JWT SECRET GENERATION"
     log_action "Generating JWT secret for secure EL-CL communication"
     openssl rand -hex 32 | tr -d "\n" > "$DATA_DIR_POS/jwt.hex"
     export JWT_SECRET_PATH=$(pwd)/$DATA_DIR_POS/jwt.hex
     log_success "JWT secret generated at $DATA_DIR_POS/jwt.hex"
+}
 
+setup_all_geth_nodes() {
+    local user_id=$1
+    local group_id=$2
+    log_step "PoS SETUP: GETH NODE ACCOUNT GENERATION"
     for i in $(seq 1 $TOTAL_NODES); do
-        setup_geth_node $i $USER_ID $GROUP_ID
+        setup_geth_node $i $user_id $group_id
     done
+}
 
+generate_consensus_genesis_and_keys() {
+    local user_id=$1
+    local group_id=$2
     log_step "PoS SETUP: CONSENSUS GENESIS & VALIDATOR KEYS"
     log_info "Generating validator keys for $POS_VALIDATOR_COUNT validators..."
     docker run --rm \
-        --user "$USER_ID:$GROUP_ID" \
+        --user "$user_id:$group_id" \
         -v "$(pwd)/$DATA_DIR_POS:/data" $PRYSM_CTL_IMAGE \
         testnet \
         generate-genesis \
@@ -97,22 +107,28 @@ setup_pos_network() {
         --geth-genesis-json-in=/data/genesis.json \
         --geth-genesis-json-out=/data/genesis.json
     log_success "Consensus configuration and validator keys generated."
+}
 
+update_genesis_for_forks() {
     log_info "Forcing all forks to activate at genesis..."
     jq '.config.shanghaiTime = 0 | .config.cancunTime = 0' "$DATA_DIR_POS/genesis.json" > "$DATA_DIR_POS/genesis.json.tmp" && mv "$DATA_DIR_POS/genesis.json.tmp" "$DATA_DIR_POS/genesis.json"
     log_success "Genesis file updated for immediate fork activation."
+}
 
+generate_bootnode_details() {
+    local user_id=$1
+    local group_id=$2
     log_step "PoS SETUP: GENERATE BOOTNODE DETAILS"
-
+    
     # --- Geth Bootnode Enode ---
     log_action "Generating Geth nodekey for node 1..."
-    docker run --rm --user "$USER_ID:$GROUP_ID" --entrypoint bootnode \
+    docker run --rm --user "$user_id:$group_id" --entrypoint bootnode \
         -v "$(pwd)/$DATA_DIR_POS/node1/execution/geth:/geth" \
         ${GETH_IMAGE_TAG_POS} -genkey /geth/nodekey
     log_success "Geth nodekey generated."
 
     log_action "Extracting Geth bootnode enode for node 1"
-    local el_pubkey=$(docker run --rm --user "$USER_ID:$GROUP_ID" --entrypoint bootnode \
+    local el_pubkey=$(docker run --rm --user "$user_id:$group_id" --entrypoint bootnode \
         -v "$(pwd)/$DATA_DIR_POS/node1/execution/geth:/geth" \
         ${GETH_IMAGE_TAG_POS} --nodekey=/geth/nodekey -writeaddress)
     if [ -z "$el_pubkey" ]; then
@@ -128,9 +144,9 @@ setup_pos_network() {
 
     # --- Prysm Bootnode ENR and Peer ID ---
     log_action "Pre-generating consensus data for node 1 to retrieve bootnode ENR and Peer ID"
-    local enr_log
+    local network_name="skripsidchain"
     docker run --rm -d --name temp_prysm_node \
-        --user "$USER_ID:$GROUP_ID" \
+        --user "$user_id:$group_id" \
         --network "$network_name" \
         --network-alias consensus_node1 \
         -v "$(pwd)/$DATA_DIR_POS/node1/consensus:/data" \
@@ -148,9 +164,7 @@ setup_pos_network() {
         --min-sync-peers=999 > /dev/null 2>&1
 
     log_info "Waiting for ENR and Peer ID to be generated..."
-    local bootnode_cl_enr=""
-    local bootnode_cl_peer_id=""
-    local enr_log=""
+    local enr_log
     for i in {1..30}; do
         sleep 2
         enr_log=$(docker logs temp_prysm_node 2>&1)
@@ -181,34 +195,56 @@ setup_pos_network() {
     echo "BOOTSTRAP_CL_ENR=\"$bootnode_cl_enr\"" >> .env
     echo "BOOTSTRAP_CL_PEER_ID=\"$bootnode_cl_peer_id\"" >> .env
     log_success "Successfully saved bootstrap info to .env"
+}
 
+initialize_all_geth_nodes() {
+    local user_id=$1
+    local group_id=$2
+    log_step "PoS SETUP: INITIALIZE GETH NODES"
     log_info "Initializing Geth for all nodes..."
     for i in $(seq 1 $TOTAL_NODES); do
         local execution_dir="$DATA_DIR_POS/node$i/execution"
         log_info "Initializing Geth for node $i..."
         docker run --rm -i \
-            --user "$USER_ID:$GROUP_ID" \
+            --user "$user_id:$group_id" \
             -v "$(pwd)/$execution_dir:/data" \
             -v "$(pwd)/$DATA_DIR_POS/genesis.json:/genesis.json" \
             $GETH_IMAGE_TAG_POS \
             geth init --datadir /data /genesis.json
     done
     log_success "All Geth nodes initialized."
+}
 
+generate_and_configure_compose_file() {
+    local bootnode_enr=$1
     log_step "PoS SETUP: DOCKER COMPOSE FILE GENERATION"
     log_action "Generating the docker-compose.pos.yml file"
-    # Generate the compose file first
+    
     chmod +x ./scripts/generate-compose.sh
     ./scripts/generate-compose.sh
     
-    # Now, inject the bootnode ENR directly into the generated file for robustness
     log_action "Injecting bootnode ENR into docker-compose.pos.yml"
     local compose_file="docker-compose.pos.yml"
-    # Use a temporary file for sed to work reliably on both Linux and macOS
     local temp_file=$(mktemp)
-    # Replace the placeholder with the actual ENR. Note the use of different delimiters for sed.
-    sed "s|--bootstrap-node=PLACEHOLDER_ENR|--bootstrap-node=${bootnode_cl_enr}|g" "$compose_file" > "$temp_file" && mv "$temp_file" "$compose_file"
+    
+    sed "s|--bootstrap-node=PLACEHOLDER_ENR|--bootstrap-node=${bootnode_enr}|g" "$compose_file" > "$temp_file" && mv "$temp_file" "$compose_file"
     log_success "docker-compose.pos.yml has been configured with the correct bootnode."
+}
+
+setup_pos_network() {
+    log_step "Starting Proof-of-Stake Network Setup"
+    
+    local USER_ID=$(id -u)
+    local GROUP_ID=$(id -g)
+
+    cleanup_and_prepare
+    generate_jwt_secret
+    setup_all_geth_nodes "$USER_ID" "$GROUP_ID"
+    generate_consensus_genesis_and_keys "$USER_ID" "$GROUP_ID"
+    update_genesis_for_forks
+    generate_bootnode_details "$USER_ID" "$GROUP_ID"
+    initialize_all_geth_nodes "$USER_ID" "$GROUP_ID"
+    generate_and_configure_compose_file "$bootnode_cl_enr"
 
     log_success "Proof-of-Stake Network Setup Complete!"
     log_info "Total nodes created: $TOTAL_NODES"
