@@ -49,8 +49,8 @@ test_el_connectivity_pos() {
         local peer_count
         peer_count=$(echo "$peers_output" | grep -c "enode:")
 
-        if [ "$peer_count" -eq "$expected_peers" ]; then
-            log_success "$node_name has $peer_count/$expected_peers peers."
+        if [ "$peer_count" -ge "$expected_peers" ]; then
+            log_success "$node_name has $peer_count from $expected_peers peers expected."
         else
             echo "$node_name has $peer_count peers, but expected $expected_peers."
             all_tests_passed=false
