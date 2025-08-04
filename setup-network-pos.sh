@@ -64,6 +64,10 @@ cleanup_and_prepare() {
         chmod +x ./destroy-network.sh && ./destroy-network.sh > /dev/null 2>&1
     fi
 
+    log_action "Forcefully removing old PoS data directory..."
+    rm -rf "$DATA_DIR_POS"
+    log_success "Old PoS data directory removed."
+
     local network_name="skripsidchain"
     if ! docker network inspect "$network_name" >/dev/null 2>&1; then
         log_info "Creating Docker network: $network_name"
@@ -82,14 +86,19 @@ cleanup_and_prepare() {
     cp config/pos_template/genesis.json "$DATA_DIR_POS/genesis.json"
     cp config/pos_template/config.yml "$DATA_DIR_POS/config.yml"
     log_success "Copied templates."
+
+    log_action "Dynamically setting genesis timestamp..."
+    local current_time_hex=$(printf '0x%x' $(date +%s))
+    jq --arg time "$current_time_hex" '.timestamp = $time' "$DATA_DIR_POS/genesis.json" > "$DATA_DIR_POS/genesis.json.tmp" && mv "$DATA_DIR_POS/genesis.json.tmp" "$DATA_DIR_POS/genesis.json"
+    log_success "Genesis timestamp updated to $current_time_hex"
 }
 
 generate_jwt_secret() {
     log_step "PoS SETUP: JWT SECRET GENERATION"
     log_action "Generating JWT secret for secure EL-CL communication"
-    openssl rand -hex 32 | tr -d "\n" > "$DATA_DIR_POS/jwt.hex"
-    export JWT_SECRET_PATH=$(pwd)/$DATA_DIR_POS/jwt.hex
-    log_success "JWT secret generated at $DATA_DIR_POS/jwt.hex"
+    printf "0x$(openssl rand -hex 32 | tr -d '\n')" > "$DATA_DIR_POS/jwtsecret"
+    export JWT_SECRET_PATH=$(pwd)/$DATA_DIR_POS/jwtsecret
+    log_success "JWT secret generated at $DATA_DIR_POS/jwtsecret"
 }
 
 setup_all_geth_nodes() {
@@ -120,12 +129,6 @@ generate_consensus_genesis_and_keys() {
     log_success "Consensus configuration and validator keys generated."
 }
 
-update_genesis_for_forks() {
-    log_info "Forcing all forks to activate at genesis..."
-    jq '.config.shanghaiTime = 0 | .config.cancunTime = 0' "$DATA_DIR_POS/genesis.json" > "$DATA_DIR_POS/genesis.json.tmp" && mv "$DATA_DIR_POS/genesis.json.tmp" "$DATA_DIR_POS/genesis.json"
-    log_success "Genesis file updated for immediate fork activation."
-}
-
 generate_bootnode_details() {
     local user_id=$1
     local group_id=$2
@@ -153,6 +156,16 @@ generate_bootnode_details() {
     log_success "Successfully saved BOOTNODE_EL_ENODE to .env"
 
     # --- Prysm Bootnode ENR and Peer ID ---
+    log_action "Pre-initializing bootnode (node 1) with genesis..."
+    local execution_dir_node1="$DATA_DIR_POS/node1/execution"
+    docker run --rm -i \
+        --user "$user_id:$group_id" \
+        -v "$(pwd)/$execution_dir_node1:/data" \
+        -v "$(pwd)/$DATA_DIR_POS/genesis.json:/genesis.json" \
+        $GETH_IMAGE_TAG_POS \
+        geth init --datadir /data /genesis.json
+    log_success "Bootnode initialized."
+
     log_action "Temporarily starting node 1 to retrieve its real ENR..."
     local temp_compose_file="docker-compose.node1.yml"
     local data_dir_pos="./data/pos"
@@ -167,7 +180,7 @@ services:
     user: "${USER_ID}:${GROUP_ID}"
     command: >
       geth
-      --nodekey /root/.ethereum/geth/nodekey --datadir=/root/.ethereum --keystore=/root/.ethereum/keystore
+      --nodekey /data/geth/nodekey --datadir=/data --keystore=/data/keystore
       --networkid=${NETWORK_ID}
       --http --http.addr=0.0.0.0 --http.api=admin,debug,engine,eth,miner,net,rpc,txpool,web3
       --http.corsdomain=*
@@ -177,13 +190,13 @@ services:
       --authrpc.vhosts=*
       --authrpc.addr=0.0.0.0
       --authrpc.port=8551
-      --authrpc.jwtsecret=/root/jwt.hex --port=30303 --allow-insecure-unlock
+      --authrpc.jwtsecret=/jwtsecret --port=30303 --allow-insecure-unlock
       --unlock=${NODE1_ADDRESS}
-      --password=/root/password.txt --syncmode=full
+      --password=/password.txt --syncmode=full
     volumes:
-      - ${data_dir_pos}/node1/execution:/root/.ethereum
-      - ${data_dir_pos}/jwt.hex:/root/jwt.hex
-      - ${data_dir_pos}/password.pass:/root/password.txt
+      - ${data_dir_pos}/node1/execution:/data
+      - ${data_dir_pos}/jwtsecret:/jwtsecret
+      - ${data_dir_pos}/password.pass:/password.txt
     networks:
       - skripsidchain
     restart: unless-stopped
@@ -200,13 +213,13 @@ services:
       --execution-endpoint=http://execution_node1:8551
       --suggested-fee-recipient=${NODE1_ADDRESS}
       --enable-debug-rpc-endpoints --minimum-peers-per-subnet=0
-      --jwt-secret=/prysm/jwt.hex --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
+      --jwt-secret=/prysm/jwtsecret --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
       --p2p-tcp-port=13000 --p2p-udp-port=13000 --rpc-port=4000 --grpc-gateway-port=3500 --interop-eth1data-votes
     volumes:
       - ${data_dir_pos}/node1/consensus:/prysm/consensus
       - ${data_dir_pos}/config.yml:/prysm/config.yml
       - ${data_dir_pos}/genesis.ssz:/prysm/genesis.ssz
-      - ${data_dir_pos}/jwt.hex:/prysm/jwt.hex
+      - ${data_dir_pos}/jwtsecret:/prysm/jwtsecret
     ports:
       - "13000:13000/tcp"
       - "13000:13000/udp"
@@ -265,6 +278,11 @@ initialize_all_geth_nodes() {
     log_step "PoS SETUP: INITIALIZE GETH NODES"
     log_info "Initializing Geth for all nodes..."
     for i in $(seq 1 $TOTAL_NODES); do
+        # Skip re-initializing node 1 as it was done in generate_bootnode_details
+        if [ $i -eq 1 ]; then
+            log_info "Skipping re-initialization for already initialized bootnode (node 1)."
+            continue
+        fi
         local execution_dir="$DATA_DIR_POS/node$i/execution"
         log_info "Initializing Geth for node $i..."
         docker run --rm -i \
@@ -274,7 +292,7 @@ initialize_all_geth_nodes() {
             $GETH_IMAGE_TAG_POS \
             geth init --datadir /data /genesis.json
     done
-    log_success "All Geth nodes initialized."
+    log_success "All non-bootnode Geth nodes initialized."
 }
 
 generate_and_configure_compose_file() {
@@ -299,7 +317,6 @@ setup_pos_network() {
     generate_jwt_secret
     setup_all_geth_nodes "$USER_ID" "$GROUP_ID"
     generate_consensus_genesis_and_keys "$USER_ID" "$GROUP_ID"
-    update_genesis_for_forks
     generate_bootnode_details "$USER_ID" "$GROUP_ID"
     initialize_all_geth_nodes "$USER_ID" "$GROUP_ID"
     generate_and_configure_compose_file "$bootnode_cl_enr"

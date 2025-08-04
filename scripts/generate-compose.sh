@@ -250,16 +250,14 @@ EOF
     generate_footer "$POA_OUTPUT_FILE"
     log_success "Finished generating docker-compose.poa.yml."
 }
+
 generate_pos_compose() {
     local compose_file="docker-compose.pos.yml"
     rm -f $compose_file
     log_info "Generating $compose_file for $POS_VALIDATOR_COUNT validators and $POS_NON_VALIDATOR_COUNT non-validators..."
 
     local total_nodes=$((POS_VALIDATOR_COUNT + POS_NON_VALIDATOR_COUNT))
-    # Setting min-sync-peers to 0 for local testnets is often more stable,
-    # as nodes can start processing blocks even before finding all peers.
     local min_sync_peers=0
-
     local data_dir_pos="./data/pos"
 
     echo "services:" > $compose_file
@@ -289,20 +287,20 @@ generate_pos_compose() {
     hostname: execution_node$i
     command: >
       geth
-      --nodekey /root/.ethereum/geth/nodekey --datadir=/root/.ethereum --keystore=/root/.ethereum/keystore
+      --nodekey /data/geth/nodekey --datadir=/data --keystore=/data/keystore
       --networkid=\${NETWORK_ID} --http --http.addr=0.0.0.0 --http.api=admin,debug,engine,eth,miner,net,rpc,txpool,web3
       --http.corsdomain=* --http.port=8545 --http.vhosts=* --ws --ws.api=eth,net,web3,engine,admin --ws.addr=0.0.0.0
       --ws.port=8546 --ws.origins=* --authrpc.vhosts=* --authrpc.addr=0.0.0.0 --authrpc.port=8551
-      --authrpc.jwtsecret=/root/jwt.hex ${geth_bootnode_param} --port=30303 --allow-insecure-unlock
-      --unlock=\${NODE${i}_ADDRESS} --password=/root/password.txt --syncmode=full
+      --authrpc.jwtsecret=/jwtsecret ${geth_bootnode_param} --port=30303 --allow-insecure-unlock
+      --unlock=\${NODE${i}_ADDRESS} --password=/password.txt --syncmode=full
       --metrics --metrics.addr=0.0.0.0 --metrics.port=6060 --metrics.expensive
       --metrics.influxdb --metrics.influxdb.endpoint="http://influxdb:8086"
       --metrics.influxdb.database="\${INFLUXDB_DB}" --metrics.influxdb.username="\${INFLUXDB_USER}" --metrics.influxdb.password="\${INFLUXDB_PASSWORD}"
       --ethstats="execution_node$i:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
     volumes:
-      - ${data_dir_pos}/node${i}/execution:/root/.ethereum
-      - ${data_dir_pos}/jwt.hex:/root/jwt.hex
-      - ${data_dir_pos}/password.pass:/root/password.txt
+      - ${data_dir_pos}/node${i}/execution:/data
+      - ${data_dir_pos}/jwtsecret:/jwtsecret
+      - ${data_dir_pos}/password.pass:/password.txt
     ports:
       - "${el_http_port}:8545"
       - "${el_ws_port}:8546"
@@ -322,7 +320,6 @@ EOF
         # --- Prysm (Consensus Node) ---
         local prysm_peer_param=""
         if [ $i -gt 1 ]; then
-            # This placeholder will be replaced by the setup script with the actual ENR.
             prysm_peer_param="--bootstrap-node=\${BOOTSTRAP_CL_ENR}"
         fi
 
@@ -336,13 +333,13 @@ EOF
       ${prysm_peer_param} --min-sync-peers=${min_sync_peers} --p2p-static-id=true
       --contract-deployment-block=0 --chain-id=\${NETWORK_ID} --execution-endpoint=http://execution_node${i}:8551
       --suggested-fee-recipient=\${NODE${i}_ADDRESS} --enable-debug-rpc-endpoints --minimum-peers-per-subnet=0
-      --jwt-secret=/prysm/jwt.hex --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
+      --jwt-secret=/prysm/jwtsecret --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
       --p2p-tcp-port=${cl_p2p_port} --p2p-udp-port=${cl_p2p_port} --rpc-port=4000 --grpc-gateway-port=3500 --interop-eth1data-votes
     volumes:
       - ${data_dir_pos}/node${i}/consensus:/prysm/consensus
       - ${data_dir_pos}/config.yml:/prysm/config.yml
       - ${data_dir_pos}/genesis.ssz:/prysm/genesis.ssz
-      - ${data_dir_pos}/jwt.hex:/prysm/jwt.hex
+      - ${data_dir_pos}/jwtsecret:/prysm/jwtsecret
     ports:
       - "${cl_p2p_port}:${cl_p2p_port}"
       - "${cl_p2p_port}:${cl_p2p_port}/udp"
@@ -370,12 +367,12 @@ EOF
     container_name: validator_node$i
     hostname: validator_node$i
     command: >
-      --datadir=/root/consensus/validatordata --beacon-rpc-provider=consensus_node${i}:4000
-      --chain-config-file=/config/config.yml --accept-terms-of-use
+      --datadir=/prysm/consensus/validatordata --beacon-rpc-provider=consensus_node${i}:4000
+      --chain-config-file=/prysm/config.yml --accept-terms-of-use
       --interop-num-validators=${num_validators_per_node} --interop-start-index=${val_start_index}
     volumes:
-      - ${data_dir_pos}/node${i}/consensus:/root/consensus
-      - ${data_dir_pos}/config.yml:/config/config.yml
+      - ${data_dir_pos}/node${i}/consensus:/prysm/consensus
+      - ${data_dir_pos}/config.yml:/prysm/config.yml
     depends_on:
       - consensus_node$i
     networks:

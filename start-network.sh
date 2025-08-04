@@ -136,6 +136,23 @@ display_status() {
         for i in $(seq 1 "$total_nodes"); do
             echo "  - Node $i: http://localhost:$((4000 + i - 1))"
         done
+
+        log_info "Open Consensus Node 1 Log, then copy the current ENR to BOOTSTRAP_CL_ENR in .env, then run:"
+        log_info "docker-compose -f docker-compose.pos.yml --env-file .env up --build -d"
+
+        log_info "How to check if execution node 1 and 2 are connected:"
+        log_info "docker exec execution_node2 geth --exec \"admin.nodeInfo.enode\" attach /root/.ethereum/geth.ipc"
+        log_info "docker exec execution_node1 geth --exec \"admin.peers\" attach /root/.ethereum/geth.ipc"
+        echo "  - If you see the enode of 'execution_node2' in the peer list of 'execution_node1', they are successfully connected."
+        echo "  - If the list is empty or 'execution_node2' enode is not present, they are not connected."
+        echo ""
+        log_info "How to check if consensus node 1 and 2 are connected:"
+        log_info "curl -s http://localhost:3500/eth/v1/node/peers | jq"
+        log_info "curl -s http://localhost:3501/eth/v1/node/peers | jq"
+        echo "  - If 'state' is \"connected\" in the output, it means they are connected."
+        echo "  - You should see consensus_node2 in the peer list of consensus_node1, and vice versa."
+        echo "  - 'direction' will indicate whether the connection is inbound or outbound."
+        echo ""
     fi
 
     log_info "To monitor logs, run: docker-compose -f ${compose_file} logs -f"

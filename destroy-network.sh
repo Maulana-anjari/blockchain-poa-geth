@@ -47,6 +47,7 @@ sudo rm -rf \
     ./config/genesis.json \
     ./docker-compose.poa.yml \
     ./docker-compose.pos.yml \
+    ./docker-compose.node1.yml \
     ./prysm-debug.log
 log_success "All generated artifacts have been deleted."
 
@@ -54,6 +55,8 @@ log_action "Cleaning up dynamic variables from .env file"
 if [ -f ".env" ]; then
     # Remove all dynamically generated variables, leaving others intact.
     sed -i \
+        -e '/^USER_ID=/d' \
+        -e '/^GROUP_ID=/d' \
         -e '/^NODE[0-9]*_ADDRESS=/d' \
         -e '/^SIGNER[0-9]*_ADDRESS=/d' \
         -e '/^NONSIGNER[0-9]*_ADDRESS=/d' \
