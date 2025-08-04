@@ -23,11 +23,11 @@ DATA_DIR_POS="./data/pos"
 # Jumlah total node
 TOTAL_NODES=$((POS_VALIDATOR_COUNT + POS_NON_VALIDATOR_COUNT))
 
-# Global variables for bootnode details, will be set by generate_bootnode_details
+# Global variables
 bootnode_cl_enr=""
 bootnode_cl_peer_id=""
 
-# Fungsi untuk membuat akun Geth dan bootkey
+# Fungsi untuk membuat akun Geth
 setup_geth_node() {
     local node_index=$1
     local user_id=$2
@@ -69,7 +69,8 @@ cleanup_and_prepare() {
     log_success "Old PoS data directory removed."
 
     local network_name="skripsidchain"
-    if ! docker network inspect "$network_name" >/dev/null 2>&1; then
+    if ! docker network inspect "$network_name" >/dev/null 2>&1;
+    then
         log_info "Creating Docker network: $network_name"
         docker network create --driver bridge "$network_name"
         log_success "Network $network_name created."
@@ -110,6 +111,49 @@ setup_all_geth_nodes() {
     done
 }
 
+generate_all_el_keys() {
+    local user_id=$1
+    local group_id=$2
+    log_step "PoS SETUP: GENERATE EL KEYS"
+    
+    declare -A enodes
+
+    # Generate nodekey and enode for each node
+    for i in $(seq 1 $TOTAL_NODES); do
+        local node_geth_dir="$DATA_DIR_POS/node$i/execution/geth"
+        log_action "Generating Geth nodekey for node $i..."
+        docker run --rm --user "$user_id:$group_id" --entrypoint bootnode \
+            -v "$(pwd)/$node_geth_dir:/geth" \
+            ${GETH_IMAGE_TAG_POS} -genkey /geth/nodekey
+        log_success "Geth nodekey generated for node $i."
+
+        local pubkey=$(docker run --rm --user "$user_id:$group_id" --entrypoint bootnode \
+            -v "$(pwd)/$node_geth_dir:/geth" \
+            ${GETH_IMAGE_TAG_POS} --nodekey=/geth/nodekey -writeaddress)
+        
+        if [ -z "$pubkey" ]; then
+            log_error "Failed to get Geth pubkey for node $i."
+            exit 1
+        fi
+        
+        # Use the service name from docker-compose as the hostname
+        enodes[$i]="enode://$pubkey@execution_node$i:30303"
+        log_info "Node $i enode: ${enodes[$i]}"
+    done
+
+    # Set bootnode enode in .env (for clients that still use it)
+    sed -i '/^BOOTNODE_EL_ENODE=/d' .env
+    echo "BOOTNODE_EL_ENODE=\"${enodes[1]}\"" >> .env
+    log_success "Successfully saved BOOTNODE_EL_ENODE to .env"
+
+    # Save all enodes to .env
+    for i in $(seq 1 $TOTAL_NODES); do
+        sed -i "/^ENODE${i}=/d" .env
+        echo "ENODE${i}=\"${enodes[$i]}\"" >> .env
+    done
+    log_success "Successfully saved all node enodes to .env"
+}
+
 generate_consensus_genesis_and_keys() {
     local user_id=$1
     local group_id=$2
@@ -132,29 +176,8 @@ generate_consensus_genesis_and_keys() {
 generate_bootnode_details() {
     local user_id=$1
     local group_id=$2
-    log_step "PoS SETUP: GENERATE BOOTNODE DETAILS"
+    log_step "PoS SETUP: GENERATE CL BOOTNODE DETAILS"
     
-    # --- Geth Bootnode Enode ---
-    log_action "Generating Geth nodekey for node 1..."
-    docker run --rm --user "$user_id:$group_id" --entrypoint bootnode \
-        -v "$(pwd)/$DATA_DIR_POS/node1/execution/geth:/geth" \
-        ${GETH_IMAGE_TAG_POS} -genkey /geth/nodekey
-    log_success "Geth nodekey generated."
-
-    log_action "Extracting Geth bootnode enode for node 1"
-    local el_pubkey=$(docker run --rm --user "$user_id:$group_id" --entrypoint bootnode \
-        -v "$(pwd)/$DATA_DIR_POS/node1/execution/geth:/geth" \
-        ${GETH_IMAGE_TAG_POS} --nodekey=/geth/nodekey -writeaddress)
-    if [ -z "$el_pubkey" ]; then
-        log_error "Failed to get Geth pubkey for node 1."
-        exit 1
-    fi
-    local bootnode_el_enode="enode://$el_pubkey@execution_node1:30303"
-    log_info "Generated Geth enode: $bootnode_el_enode"
-    sed -i '/^BOOTNODE_EL_ENODE=/d' .env
-    echo "BOOTNODE_EL_ENODE=\"$bootnode_el_enode\"" >> .env
-    log_success "Successfully saved BOOTNODE_EL_ENODE to .env"
-
     # --- Prysm Bootnode ENR and Peer ID ---
     log_action "Pre-initializing bootnode (node 1) with genesis..."
     local execution_dir_node1="$DATA_DIR_POS/node1/execution"
@@ -183,16 +206,12 @@ services:
       --nodekey /data/geth/nodekey --datadir=/data --keystore=/data/keystore
       --networkid=${NETWORK_ID}
       --http --http.addr=0.0.0.0 --http.api=admin,debug,engine,eth,miner,net,rpc,txpool,web3
-      --http.corsdomain=*
-      --http.port=8545 --http.vhosts=*
+      --http.corsdomain=* --http.port=8545 --http.vhosts=*
       --ws --ws.api=eth,net,web3,engine,admin --ws.addr=0.0.0.0
       --ws.port=8546 --ws.origins=*
-      --authrpc.vhosts=*
-      --authrpc.addr=0.0.0.0
-      --authrpc.port=8551
+      --authrpc.vhosts=* --authrpc.addr=0.0.0.0 --authrpc.port=8551
       --authrpc.jwtsecret=/jwtsecret --port=30303 --allow-insecure-unlock
-      --unlock=${NODE1_ADDRESS}
-      --password=/password.txt --syncmode=full
+      --unlock=${NODE1_ADDRESS} --password=/password.txt --syncmode=full
     volumes:
       - ${data_dir_pos}/node1/execution:/data
       - ${data_dir_pos}/jwtsecret:/jwtsecret
@@ -277,12 +296,7 @@ initialize_all_geth_nodes() {
     local group_id=$2
     log_step "PoS SETUP: INITIALIZE GETH NODES"
     log_info "Initializing Geth for all nodes..."
-    for i in $(seq 1 $TOTAL_NODES); do
-        # Skip re-initializing node 1 as it was done in generate_bootnode_details
-        if [ $i -eq 1 ]; then
-            log_info "Skipping re-initialization for already initialized bootnode (node 1)."
-            continue
-        fi
+    for i in $(seq 2 $TOTAL_NODES); do
         local execution_dir="$DATA_DIR_POS/node$i/execution"
         log_info "Initializing Geth for node $i..."
         docker run --rm -i \
@@ -292,23 +306,18 @@ initialize_all_geth_nodes() {
             $GETH_IMAGE_TAG_POS \
             geth init --datadir /data /genesis.json
     done
+    # Node 1 is initialized in generate_bootnode_details
     log_success "All non-bootnode Geth nodes initialized."
 }
 
 generate_and_configure_compose_file() {
-    local bootnode_enr=$1
     log_step "PoS SETUP: DOCKER COMPOSE FILE GENERATION"
     log_action "Generating the docker-compose.pos.yml file"
     
     chmod +x ./scripts/generate-compose.sh
     ./scripts/generate-compose.sh
     
-    log_action "Injecting bootnode ENR into docker-compose.pos.yml"
-    local compose_file="docker-compose.pos.yml"
-    local temp_file=$(mktemp)
-    
-    sed "s|--bootstrap-node=PLACEHOLDER_ENR|--bootstrap-node=${bootnode_enr}|g" "$compose_file" > "$temp_file" && mv "$temp_file" "$compose_file"
-    log_success "docker-compose.pos.yml has been configured with the correct bootnode."
+    log_success "docker-compose.pos.yml has been generated."
 }
 
 setup_pos_network() {
@@ -316,10 +325,11 @@ setup_pos_network() {
     cleanup_and_prepare
     generate_jwt_secret
     setup_all_geth_nodes "$USER_ID" "$GROUP_ID"
+    generate_all_el_keys "$USER_ID" "$GROUP_ID"
     generate_consensus_genesis_and_keys "$USER_ID" "$GROUP_ID"
     generate_bootnode_details "$USER_ID" "$GROUP_ID"
     initialize_all_geth_nodes "$USER_ID" "$GROUP_ID"
-    generate_and_configure_compose_file "$bootnode_cl_enr"
+    generate_and_configure_compose_file
 
     log_success "Proof-of-Stake Network Setup Complete!"
     log_info "Total nodes created: $TOTAL_NODES"

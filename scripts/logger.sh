@@ -44,3 +44,9 @@ log_error() {
 log_info() {
     echo -e "${C_CYAN}ℹ️  $1${C_NC}"
 }
+
+# log_warn: Prints a warning message.
+# Usage: log_warn "Configuration value is not optimal."
+log_warn() {
+    echo -e "${C_YELLOW}⚠️  WARNING: $1${C_NC}" >&2
+}

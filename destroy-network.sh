@@ -58,6 +58,7 @@ if [ -f ".env" ]; then
         -e '/^USER_ID=/d' \
         -e '/^GROUP_ID=/d' \
         -e '/^NODE[0-9]*_ADDRESS=/d' \
+        -e '/^ENODE[0-9]*=/d' \
         -e '/^SIGNER[0-9]*_ADDRESS=/d' \
         -e '/^NONSIGNER[0-9]*_ADDRESS=/d' \
         -e '/^BOOTSTRAP_CL_ENR=/d' \

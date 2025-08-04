@@ -22,6 +22,7 @@ if [ "$NETWORK_TYPE" == "PoA" ]; then
 elif [ "$NETWORK_TYPE" == "PoS" ]; then
   export NUM_VALIDATORS=${POS_VALIDATOR_COUNT:-3}
   export NUM_NON_VALIDATORS=${POS_NON_VALIDATOR_COUNT:-1}
+  export NUM_NODES=$((NUM_VALIDATORS + NUM_NON_VALIDATORS))
 fi
 
 

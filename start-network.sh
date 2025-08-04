@@ -139,12 +139,9 @@ display_status() {
 
         log_info "Open Consensus Node 1 Log, then copy the current ENR to BOOTSTRAP_CL_ENR in .env, then run:"
         log_info "docker-compose -f docker-compose.pos.yml --env-file .env up --build -d"
-
-        log_info "How to check if execution node 1 and 2 are connected:"
-        log_info "docker exec execution_node2 geth --exec \"admin.nodeInfo.enode\" attach /root/.ethereum/geth.ipc"
-        log_info "docker exec execution_node1 geth --exec \"admin.peers\" attach /root/.ethereum/geth.ipc"
-        echo "  - If you see the enode of 'execution_node2' in the peer list of 'execution_node1', they are successfully connected."
-        echo "  - If the list is empty or 'execution_node2' enode is not present, they are not connected."
+        echo ""
+        log_info "To check the peer-to-peer connectivity of the execution nodes, run: ./pos-connection-test.sh"
+        log_info "If the execution nodes are not yet connected, run : ./pos-connect-peers.sh"
         echo ""
         log_info "How to check if consensus node 1 and 2 are connected:"
         log_info "curl -s http://localhost:3500/eth/v1/node/peers | jq"
