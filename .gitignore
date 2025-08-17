@@ -7,3 +7,4 @@ docker-compose.yml
 docker-compose.pos.yml
 docker-compose.poa.yml
 prysm-debug.log
+temp_logs/

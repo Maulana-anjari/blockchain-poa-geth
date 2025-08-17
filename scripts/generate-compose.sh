@@ -291,7 +291,7 @@ generate_pos_compose() {
       --networkid=\${NETWORK_ID} --http --http.addr=0.0.0.0 --http.api=admin,debug,engine,eth,miner,net,rpc,txpool,web3
       --http.corsdomain=* --http.port=8545 --http.vhosts=* --ws --ws.api=eth,net,web3,engine,admin --ws.addr=0.0.0.0
       --ws.port=8546 --ws.origins=* --authrpc.vhosts=* --authrpc.addr=0.0.0.0 --authrpc.port=8551
-      --authrpc.jwtsecret=/jwtsecret ${geth_bootnode_param} --port=30303 --allow-insecure-unlock
+      --authrpc.jwt.hex=/jwt.hex ${geth_bootnode_param} --port=30303 --allow-insecure-unlock
       --unlock=\${NODE${i}_ADDRESS} --password=/password.txt --syncmode=full
       --metrics --metrics.addr=0.0.0.0 --metrics.port=6060 --metrics.expensive
       --metrics.influxdb --metrics.influxdb.endpoint="http://influxdb:8086"
@@ -299,7 +299,7 @@ generate_pos_compose() {
       --ethstats="execution_node$i:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
     volumes:
       - ${data_dir_pos}/node${i}/execution:/data
-      - ${data_dir_pos}/jwtsecret:/jwtsecret
+      - ${data_dir_pos}/jwt.hex:/jwt.hex
       - ${data_dir_pos}/password.pass:/password.txt
     ports:
       - "${el_http_port}:8545"
@@ -333,13 +333,14 @@ EOF
       ${prysm_peer_param} --min-sync-peers=${min_sync_peers} --p2p-static-id=true
       --contract-deployment-block=0 --chain-id=\${NETWORK_ID} --execution-endpoint=http://execution_node${i}:8551
       --suggested-fee-recipient=\${NODE${i}_ADDRESS} --enable-debug-rpc-endpoints --minimum-peers-per-subnet=0
-      --jwt-secret=/prysm/jwtsecret --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
+      --jwt-secret=/prysm/jwt.hex --accept-terms-of-use --rpc-host=0.0.0.0 --grpc-gateway-host=0.0.0.0
+      --p2p-host-dns=consensus_node$i
       --p2p-tcp-port=${cl_p2p_port} --p2p-udp-port=${cl_p2p_port} --rpc-port=4000 --grpc-gateway-port=3500 --interop-eth1data-votes
     volumes:
       - ${data_dir_pos}/node${i}/consensus:/prysm/consensus
       - ${data_dir_pos}/config.yml:/prysm/config.yml
       - ${data_dir_pos}/genesis.ssz:/prysm/genesis.ssz
-      - ${data_dir_pos}/jwtsecret:/prysm/jwtsecret
+      - ${data_dir_pos}/jwt.hex:/prysm/jwt.hex
     ports:
       - "${cl_p2p_port}:${cl_p2p_port}"
       - "${cl_p2p_port}:${cl_p2p_port}/udp"
