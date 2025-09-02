@@ -291,7 +291,7 @@ generate_pos_compose() {
       --networkid=\${NETWORK_ID} --http --http.addr=0.0.0.0 --http.api=admin,debug,engine,eth,miner,net,rpc,txpool,web3
       --http.corsdomain=* --http.port=8545 --http.vhosts=* --ws --ws.api=eth,net,web3,engine,admin --ws.addr=0.0.0.0
       --ws.port=8546 --ws.origins=* --authrpc.vhosts=* --authrpc.addr=0.0.0.0 --authrpc.port=8551
-      --authrpc.jwt.hex=/jwt.hex ${geth_bootnode_param} --port=30303 --allow-insecure-unlock
+      --authrpc.jwtsecret=/jwt.hex ${geth_bootnode_param} --port=30303 --allow-insecure-unlock
       --unlock=\${NODE${i}_ADDRESS} --password=/password.txt --syncmode=full
       --metrics --metrics.addr=0.0.0.0 --metrics.port=6060 --metrics.expensive
       --metrics.influxdb --metrics.influxdb.endpoint="http://influxdb:8086"

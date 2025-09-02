@@ -210,7 +210,7 @@ services:
       --ws --ws.api=eth,net,web3,engine,admin --ws.addr=0.0.0.0
       --ws.port=8546 --ws.origins=*
       --authrpc.vhosts=* --authrpc.addr=0.0.0.0 --authrpc.port=8551
-      --authrpc.jwt.hex=/jwt.hex --port=30303 --allow-insecure-unlock
+      --authrpc.jwtsecret=/jwt.hex --port=30303 --allow-insecure-unlock
       --unlock=${NODE1_ADDRESS} --password=/password.txt --syncmode=full
     volumes:
       - ${data_dir_pos}/node1/execution:/data
