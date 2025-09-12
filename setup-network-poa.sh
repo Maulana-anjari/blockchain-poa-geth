@@ -60,22 +60,33 @@ log_action "Generating initial Docker Compose file"
 chmod +x ./scripts/generate-compose.sh && ./scripts/generate-compose.sh
 log_success "Initial docker-compose.poa.yml generated."
 
+# Ensure the external Docker network exists before using docker compose
+NETWORK_NAME="skripsidchain"
+log_action "Ensuring Docker network '${NETWORK_NAME}' exists"
+if ! docker network ls | grep -q "${NETWORK_NAME}\b"; then
+  log_info "Network not found. Creating Docker network: ${NETWORK_NAME}"
+  docker network create "${NETWORK_NAME}"
+  log_success "Docker network '${NETWORK_NAME}' created."
+else
+  log_info "Docker network '${NETWORK_NAME}' already exists."
+fi
+
 log_action "Initializing Geth database for all nodes"
 POA_OUTPUT_FILE="docker-compose.poa.yml"
-for i in $(seq 1 $NUM_SIGNERS); do docker-compose -f ${POA_OUTPUT_FILE} run --rm --no-deps signer${i} geth init /config/genesis.json; done
-for i in $(seq 1 $NUM_NONSIGNERS); do docker-compose -f ${POA_OUTPUT_FILE} run --rm --no-deps nonsigner${i} geth init /config/genesis.json; done
+for i in $(seq 1 $NUM_SIGNERS); do docker compose -f ${POA_OUTPUT_FILE} run --rm --no-deps signer${i} geth init /config/genesis.json; done
+for i in $(seq 1 $NUM_NONSIGNERS); do docker compose -f ${POA_OUTPUT_FILE} run --rm --no-deps nonsigner${i} geth init /config/genesis.json; done
 log_success "Geth databases initialized."
 
 log_step "PoA SETUP: BOOTNODE ENODE RETRIEVAL"
 log_action "Starting bootnode to retrieve its enode"
-docker-compose -f ${POA_OUTPUT_FILE} up -d nonsigner1
+docker compose -f ${POA_OUTPUT_FILE} up -d nonsigner1
 log_action "Waiting for bootnode RPC to become available"
 until curl -s -f -X POST --data '{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}' -H 'Content-Type: application/json' http://localhost:${BASE_GETH_HTTP_PORT} > /dev/null 2>&1; do
   sleep 1
 done
 ENODE_INFO=$(curl -s -X POST --data '{"jsonrpc":"2.0","method":"admin_nodeInfo","params":[],"id":1}' -H 'Content-Type: application/json' http://localhost:${BASE_GETH_HTTP_PORT})
 ENODE_URL=$(echo $ENODE_INFO | jq -r '.result.enode')
-docker-compose -f ${POA_OUTPUT_FILE} stop nonsigner1
+docker compose -f ${POA_OUTPUT_FILE} stop nonsigner1
 ENODE_URL_CLEANED=$(echo $ENODE_URL | sed 's/\[::\]/nonsigner1/' | sed 's/127.0.0.1/nonsigner1/' | sed -E 's/@[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:/@nonsigner1:/')
 echo "BOOTNODE_ENODE=${ENODE_URL_CLEANED}" >> .env
 export BOOTNODE_ENODE=$ENODE_URL_CLEANED

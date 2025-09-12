@@ -18,10 +18,10 @@ log_action "Stopping and removing all possible network containers and volumes"
 # Attempt to tear down both PoA and PoS configurations to ensure a full cleanup.
 # The '|| true' prevents errors if one of the files or networks doesn't exist.
 if [ -f "docker-compose.poa.yml" ]; then
-    docker-compose -f docker-compose.poa.yml down -v --remove-orphans > /dev/null 2>&1 || true
+    docker compose -f docker-compose.poa.yml down -v --remove-orphans > /dev/null 2>&1 || true
 fi
 if [ -f "docker-compose.pos.yml" ]; then
-    docker-compose -f docker-compose.pos.yml down -v --remove-orphans > /dev/null 2>&1 || true
+    docker compose -f docker-compose.pos.yml down -v --remove-orphans > /dev/null 2>&1 || true
 fi
 log_success "All network services stopped and removed."
 

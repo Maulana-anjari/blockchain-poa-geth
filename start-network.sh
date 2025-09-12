@@ -86,11 +86,11 @@ deploy_network() {
     fi
 
     log_action "Tearing down any existing services to ensure a clean start"
-    docker-compose -f "${compose_file}" down --volumes > /dev/null 2>&1 || true
+    docker compose -f "${compose_file}" down --volumes > /dev/null 2>&1 || true
     log_success "Previous network services stopped and removed."
 
     log_action "Starting the ${NETWORK_TYPE} network via Docker Compose"
-    docker-compose -f "${compose_file}" --env-file .env up --build -d
+    docker compose -f "${compose_file}" --env-file .env up --build -d
     log_success "Network deployment complete!"
 }
 
@@ -105,7 +105,7 @@ display_status() {
     local compose_file="docker-compose.${type,,}.yml"
 
     log_action "Network Status"
-    docker-compose -f "$compose_file" ps
+    docker compose -f "$compose_file" ps
     log_action "Instructions"
 
     if [ "$type" == "PoA" ]; then
@@ -138,7 +138,7 @@ display_status() {
         done
 
         log_info "Open Consensus Node 1 Log, then copy the current ENR to BOOTSTRAP_CL_ENR in .env, then run:"
-        log_info "docker-compose -f docker-compose.pos.yml --env-file .env up --build -d"
+        log_info "docker compose -f docker-compose.pos.yml --env-file .env up --build -d"
         echo ""
         log_info "To check the peer-to-peer connectivity of the execution nodes, run: ./pos-connection-test.sh"
         log_info "If the execution nodes are not yet connected, run : ./pos-connect-peers.sh"
@@ -152,7 +152,7 @@ display_status() {
         echo ""
     fi
 
-    log_info "To monitor logs, run: docker-compose -f ${compose_file} logs -f"
+    log_info "To monitor logs, run: docker compose -f ${compose_file} logs -f"
     log_info "Ethstats dashboard: http://localhost:${BASE_MONITORING_HTTP_PORT}"
     log_info "Grafana dashboard: http://localhost:${BASE_GRAFANA_HTTP_PORT}"
     log_info "To stop the network, run: ./destroy-network.sh"
