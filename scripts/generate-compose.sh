@@ -106,12 +106,25 @@ generate_poa_compose() {
 services:
 EOF
     # --- Bootnode (Non-Signer 1) ---
+    local bootnode_label
+    bootnode_label=$(get_poa_nonsigner_label 1)
+    local bootnode_slug
+    bootnode_slug=$(slugify_label "$bootnode_label")
+    if [ -z "$bootnode_slug" ]; then
+        bootnode_slug="nonsigner1"
+    fi
+    local bootnode_container="rpc-${bootnode_slug}"
+    local bootnode_hostname="$bootnode_container"
+    local bootnode_ethstats="$bootnode_label"
+    if [ -z "$bootnode_ethstats" ]; then
+        bootnode_ethstats="nonsigner1"
+    fi
     cat >> "$POA_OUTPUT_FILE" <<EOF
-  # --- Bootnode (Non-Signer 1) ---
+  # --- Bootnode (Non-Signer 1 - ${bootnode_label:-nonsigner1}) ---
   nonsigner1:
     image: ${GETH_IMAGE_TAG_POA}
-    container_name: nonsigner1
-    hostname: nonsigner1
+    container_name: ${bootnode_container}
+    hostname: ${bootnode_hostname}
     volumes:
       - ./config/genesis.json:/config/genesis.json:ro
       - ./data/nonsigner1:/root/.ethereum
@@ -135,7 +148,7 @@ EOF
       --metrics.influxdb.database "\${INFLUXDB_DB}"
       --metrics.influxdb.username "\${INFLUXDB_USER}"
       --metrics.influxdb.password "\${INFLUXDB_PASSWORD}"
-      --ethstats "nonsigner1:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
+      --ethstats "${bootnode_ethstats}:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
       --password /root/password.txt --allow-insecure-unlock
     networks:
       - skripsidchain
@@ -146,15 +159,28 @@ EOF
         HTTP_PORT=$((BASE_GETH_HTTP_PORT + (i * 2) + 10))
         WS_PORT=$((HTTP_PORT + 1))
         P2P_PORT=$((BASE_GETH_P2P_PORT + i))
+        local signer_label
+        signer_label=$(get_poa_signer_label "$i")
+        local signer_slug
+        signer_slug=$(slugify_label "$signer_label")
+        if [ -z "$signer_slug" ]; then
+            signer_slug="signer${i}"
+        fi
+        local clef_container="clef-${signer_slug}"
+        local signer_container="signer-${signer_slug}"
+        local signer_ethstats="$signer_label"
+        if [ -z "$signer_ethstats" ]; then
+            signer_ethstats="signer${i}"
+        fi
         cat >> "$POA_OUTPUT_FILE" <<EOF
 
-  # --- Signer Node ${i} ---
+  # --- Signer Node ${i} - ${signer_label:-signer${i}} ---
   clef${i}:
     build:
       context: .
       dockerfile: Dockerfile.clef
-    container_name: clef${i}
-    hostname: clef${i}
+    container_name: ${clef_container}
+    hostname: ${clef_container}
     environment:
       - CLEF_MASTER_PASSWORD=${SIGNER_PASS_PREFIX}${i}
       - NETWORK_ID=${NETWORK_ID}
@@ -169,8 +195,8 @@ EOF
 
   signer${i}:
     image: ${GETH_IMAGE_TAG_POA}
-    container_name: signer${i}
-    hostname: signer${i}
+    container_name: ${signer_container}
+    hostname: ${signer_container}
     depends_on:
       clef${i}:
         condition: service_started
@@ -195,7 +221,7 @@ EOF
         --metrics.influxdb.database "\${INFLUXDB_DB}" 
         --metrics.influxdb.username "\${INFLUXDB_USER}" 
         --metrics.influxdb.password "\${INFLUXDB_PASSWORD}" 
-        --ethstats "signer${i}:\${ETHSTATS_WS_SECRET}@ethstats-server:3000" 
+        --ethstats "${signer_ethstats}:\${ETHSTATS_WS_SECRET}@ethstats-server:3000" 
         --bootnodes "\${BOOTNODE_ENODE}" 
         --signer "http://clef${i}:8550" 
         --mine --miner.etherbase "\${SIGNER${i}_ADDRESS}"
@@ -210,13 +236,25 @@ EOF
             HTTP_PORT=$((BASE_GETH_HTTP_PORT + (NUM_SIGNERS * 2) + (i * 2) + 20))
             WS_PORT=$((HTTP_PORT + 1))
             P2P_PORT=$((BASE_GETH_P2P_PORT + NUM_SIGNERS + i))
+            local nonsigner_label
+            nonsigner_label=$(get_poa_nonsigner_label "$i")
+            local nonsigner_slug
+            nonsigner_slug=$(slugify_label "$nonsigner_label")
+            if [ -z "$nonsigner_slug" ]; then
+                nonsigner_slug="nonsigner${i}"
+            fi
+            local nonsigner_container="rpc-${nonsigner_slug}"
+            local nonsigner_ethstats="$nonsigner_label"
+            if [ -z "$nonsigner_ethstats" ]; then
+                nonsigner_ethstats="nonsigner${i}"
+            fi
             cat >> "$POA_OUTPUT_FILE" <<EOF
 
-  # --- Non-Signer Node ${i} ---
+  # --- Non-Signer Node ${i} - ${nonsigner_label:-nonsigner${i}} ---
   nonsigner${i}:
     image: ${GETH_IMAGE_TAG_POA}
-    container_name: nonsigner${i}
-    hostname: nonsigner${i}
+    container_name: ${nonsigner_container}
+    hostname: ${nonsigner_container}
     depends_on:
       - nonsigner1
     volumes:
@@ -237,7 +275,7 @@ EOF
       --metrics.influxdb.database "\${INFLUXDB_DB}"
       --metrics.influxdb.username "\${INFLUXDB_USER}"
       --metrics.influxdb.password "\${INFLUXDB_PASSWORD}"
-      --ethstats "nonsigner${i}:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
+      --ethstats "${nonsigner_ethstats}:\${ETHSTATS_WS_SECRET}@ethstats-server:3000"
       --password /root/password.txt --allow-insecure-unlock
       --bootnodes "\${BOOTNODE_ENODE}"
     networks:

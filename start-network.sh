@@ -112,15 +112,24 @@ display_status() {
         log_info "PoA network is running."
         log_info "You can attach to any node using its RPC endpoint."
         log_info "Available RPC endpoints:"
-        echo "  - nonsigner1: http://localhost:${BASE_GETH_HTTP_PORT}"
+        local boot_label
+        boot_label=$(get_poa_nonsigner_label 1)
+        local boot_display=${boot_label:-nonsigner1}
+        echo "  - ${boot_display} (non-signer bootnode): http://localhost:${BASE_GETH_HTTP_PORT}"
         for i in $(seq 1 "$NUM_SIGNERS"); do
             local http_port=$((BASE_GETH_HTTP_PORT + (i * 2) + 10))
-            echo "  - signer${i}: http://localhost:${http_port}"
+            local signer_label
+            signer_label=$(get_poa_signer_label "$i")
+            local signer_display=${signer_label:-signer${i}}
+            echo "  - ${signer_display} (signer): http://localhost:${http_port}"
         done
         if [ "$NUM_NONSIGNERS" -gt 1 ]; then
             for i in $(seq 2 "$NUM_NONSIGNERS"); do
                 local http_port=$((BASE_GETH_HTTP_PORT + (NUM_SIGNERS * 2) + (i * 2) + 20))
-                echo "  - nonsigner${i}: http://localhost:${http_port}"
+                local nonsigner_label
+                nonsigner_label=$(get_poa_nonsigner_label "$i")
+                local nonsigner_display=${nonsigner_label:-nonsigner${i}}
+                echo "  - ${nonsigner_display} (non-signer): http://localhost:${http_port}"
             done
         fi
     elif [ "$type" == "PoS" ]; then

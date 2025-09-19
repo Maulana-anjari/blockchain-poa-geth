@@ -91,6 +91,8 @@ export INFLUXDB_PASSWORD="YourStrongInfluxDBPassword"
 export GRAFANA_ADMIN_PASSWORD="YourStrongGrafanaAdminPassword"
 # ... (other configurations can be left as default)
 ```
+> 💡 **Tip:** Mirror the PoS topology naming by defining `POA_SIGNER_LABELS` and `POA_NONSIGNER_LABELS` in `.env`; the toolkit will reuse those labels for container names and Ethstats IDs in order.
+
 
 ### **Step 4: Run the Automated Setup Script**
 

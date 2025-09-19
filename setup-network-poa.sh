@@ -6,6 +6,8 @@ set -e
 source ./scripts/logger.sh
 source ./config.sh
 
+touch .env
+
 log_step "PoA SETUP: CLEANUP & PREPARATION"
 log_action "Cleaning up previous data and creating directories"
 if [ -f "./destroy-network.sh" ]; then
@@ -20,28 +22,40 @@ log_success "Directories created."
 log_step "PoA SETUP: ACCOUNT & PASSWORD GENERATION"
 log_action "Generating passwords and Ethereum accounts for ${NUM_SIGNERS} signers and ${NUM_NONSIGNERS} non-signers"
 for i in $(seq 1 $NUM_SIGNERS); do
+  LABEL=$(get_poa_signer_label "$i")
   PASS="${SIGNER_PASS_PREFIX}${i}"; echo -n "$PASS" > ./config/passwords/signer${i}.pass; chmod 600 ./config/passwords/signer${i}.pass
   ADDR=$(docker run --rm -i -v "$(pwd)/data/signer${i}:/data" -v "$(pwd)/config/passwords/signer${i}.pass:/pass" ${GETH_IMAGE_TAG_POA} geth --datadir /data account new --password /pass | grep "Public address of the key" | awk '{print $NF}')
   echo -n "$ADDR" > ./config/addresses/signer${i}.addr
   echo -e "SIGNER${i}_ADDRESS=$ADDR"
   echo "SIGNER${i}_ADDRESS=$ADDR" >> .env
   export SIGNER${i}_ADDRESS=$ADDR
+  if [ -n "$LABEL" ]; then
+    sed -i "/^SIGNER${i}_LABEL=/d" .env 2>/dev/null || true
+    echo "SIGNER${i}_LABEL=$LABEL" >> .env
+    export SIGNER${i}_LABEL=$LABEL
+  fi
 done
 for i in $(seq 1 $NUM_NONSIGNERS); do
+  LABEL=$(get_poa_nonsigner_label "$i")
   PASS="${NONSIGNER_PASS_PREFIX}${i}"; echo -n "$PASS" > ./config/passwords/nonsigner${i}.pass; chmod 600 ./config/passwords/nonsigner${i}.pass
   ADDR=$(docker run --rm -i -v "$(pwd)/data/nonsigner${i}:/data" -v "$(pwd)/config/passwords/nonsigner${i}.pass:/pass" ${GETH_IMAGE_TAG_POA} geth --datadir /data account new --password /pass | grep "Public address of the key" | awk '{print $NF}')
   echo -n "$ADDR" > ./config/addresses/nonsigner${i}.addr
   echo -e "NONSIGNER${i}_ADDRESS=$ADDR"
   echo "NONSIGNER${i}_ADDRESS=$ADDR" >> .env
   export NONSIGNER${i}_ADDRESS=$ADDR
+  if [ -n "$LABEL" ]; then
+    sed -i "/^NONSIGNER${i}_LABEL=/d" .env 2>/dev/null || true
+    echo "NONSIGNER${i}_LABEL=$LABEL" >> .env
+    export NONSIGNER${i}_LABEL=$LABEL
+  fi
 done
 log_success "Accounts and passwords generated."
 
 log_step "PoA SETUP: CLEF INITIALIZATION"
 log_info "You will be prompted for passwords during Clef initialization."
 for i in $(seq 1 $NUM_SIGNERS); do
-  ADDR=$(cat ./config/addresses/signer${i}.addr); PASS="${SIGNER_PASS_PREFIX}${i}"; RULE_HASH=$(sha256sum ./config/rules.js | cut -f1 -d' ')
-  log_action "Configuring Clef for Signer ${i} ($ADDR)"
+  ADDR=$(cat ./config/addresses/signer${i}.addr); PASS="${SIGNER_PASS_PREFIX}${i}"; RULE_HASH=$(sha256sum ./config/rules.js | cut -f1 -d' '); LABEL=$(get_poa_signer_label "$i")
+  log_action "Configuring Clef for Signer ${i} (${LABEL}) [$ADDR]"
   log_info "Please use password: '${PASS}' when prompted."
   docker run --rm -it -v "$(pwd)/data/signer${i}/keystore:/root/.ethereum/keystore" -v "$(pwd)/data/clef${i}:/root/.clef" ${GETH_IMAGE_TAG_POA} clef --keystore /root/.ethereum/keystore --configdir /root/.clef init
   docker run --rm -it -v "$(pwd)/data/signer${i}/keystore:/root/.ethereum/keystore" -v "$(pwd)/data/clef${i}:/root/.clef" ${GETH_IMAGE_TAG_POA} clef --keystore /root/.ethereum/keystore --configdir /root/.clef setpw $ADDR

@@ -14,6 +14,63 @@ if [ -f .env ]; then
     set +a
 fi
 
+# --- Helper Functions ---
+trim_whitespace() {
+  # shellcheck disable=SC2001
+  echo "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+parse_labels_to_array() {
+  local raw="$1"
+  local -n target_array=$2
+  target_array=()
+  if [ -z "$raw" ]; then
+    return
+  fi
+  IFS=',' read -ra __tmp_labels <<< "$raw"
+  for label in "${__tmp_labels[@]}"; do
+    local trimmed
+    trimmed=$(trim_whitespace "$label")
+    if [ -n "$trimmed" ]; then
+      target_array+=("$trimmed")
+    fi
+  done
+}
+
+slugify_label() {
+  echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-+$//g'
+}
+
+get_array_label() {
+  local -n arr=$1
+  local index=$2
+  local fallback=$3
+  if [ ${#arr[@]} -ge "$index" ]; then
+    echo "${arr[$((index-1))]}"
+  else
+    echo "$fallback"
+  fi
+}
+
+get_poa_signer_label() {
+  local idx=$1
+  local fallback="Signer${idx}"
+  get_array_label POA_SIGNER_LABELS_ARRAY "$idx" "$fallback"
+}
+
+get_poa_nonsigner_label() {
+  local idx=$1
+  local fallback="NonSigner${idx}"
+  get_array_label POA_NONSIGNER_LABELS_ARRAY "$idx" "$fallback"
+}
+
+# --- Label Arrays ---
+declare -a POA_SIGNER_LABELS_ARRAY=()
+declare -a POA_NONSIGNER_LABELS_ARRAY=()
+
+parse_labels_to_array "${POA_SIGNER_LABELS:-}" POA_SIGNER_LABELS_ARRAY
+parse_labels_to_array "${POA_NONSIGNER_LABELS:-}" POA_NONSIGNER_LABELS_ARRAY
+
 # --- Dynamic Node Count Configuration ---
 # Set the number of nodes based on the active NETWORK_TYPE.
 if [ "$NETWORK_TYPE" == "PoA" ]; then
