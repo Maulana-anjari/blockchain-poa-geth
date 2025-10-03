@@ -181,7 +181,7 @@ docker-compose down
 To stop containers **AND DELETE ALL DATA** (chaindata, configurations, etc.) to start fresh, use the `destroy-network.sh` script:
 
 ```bash
-./destroy-network.sh
+WIPE_SECRETS=true ./destroy-network.sh.
 ```
 
 ## **How the Automation Works (Technical Details)**

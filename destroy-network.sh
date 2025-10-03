@@ -40,15 +40,23 @@ fi
 
 log_action "Deleting all generated data, logs, and configuration files"
 # Using sudo in case some files were created with root permissions by Docker.
+WIPE_SECRETS=${WIPE_SECRETS:-false}
+
 sudo rm -rf \
     ./data \
-    ./config/passwords \
-    ./config/addresses \
     ./config/genesis.json \
     ./docker-compose.poa.yml \
     ./docker-compose.pos.yml \
     ./docker-compose.node1.yml \
     ./prysm-debug.log
+
+if [[ "$WIPE_SECRETS" == "true" || "$WIPE_SECRETS" == "1" ]]; then
+    log_action "WIPE_SECRETS enabled: deleting config/passwords and config/addresses"
+    sudo rm -rf ./config/passwords ./config/addresses
+    log_success "Sensitive directories removed."
+else
+    log_info "Preserving config/passwords and config/addresses (set WIPE_SECRETS=true to delete)."
+fi
 log_success "All generated artifacts have been deleted."
 
 log_action "Cleaning up dynamic variables from .env file"
